@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="290" viewBox="0 0 980 290" role="img" aria-labelledby="title desc">
+  <title id="title">Network activity detail spectrum</title>
+  <desc id="desc">Notifications can range from opaque signals to source hints, query hints, and feed endpoint hints.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
+    </marker>
+    <style>
+      .panel { fill: #ffffff; stroke: #2b4a5f; stroke-width: 2; rx: 8; }
+      .muted { fill: #f2f5f7; stroke: #2b4a5f; stroke-width: 2; rx: 8; }
+      .label { font-family: Arial, sans-serif; font-size: 16px; fill: #14212b; font-weight: 700; }
+      .small { font-family: Arial, sans-serif; font-size: 13px; fill: #33434f; }
+      .line { stroke: #2b4a5f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <text x="70" y="45" class="small">less disclosure</text>
+  <path d="M170 41 H810" class="line"/>
+  <text x="830" y="45" class="small">more actionable hints</text>
+
+  <rect x="55" y="85" width="200" height="135" class="muted"/>
+  <text x="155" y="120" text-anchor="middle" class="label">Opaque</text>
+  <text x="155" y="150" text-anchor="middle" class="small">activity handle</text>
+  <text x="155" y="172" text-anchor="middle" class="small">rediscover</text>
+  <text x="155" y="194" text-anchor="middle" class="small">no source details</text>
+
+  <rect x="285" y="85" width="200" height="135" class="panel"/>
+  <text x="385" y="120" text-anchor="middle" class="label">Source hinted</text>
+  <text x="385" y="150" text-anchor="middle" class="small">organization ID</text>
+  <text x="385" y="172" text-anchor="middle" class="small">optional endpoint</text>
+  <text x="385" y="194" text-anchor="middle" class="small">client decides if new</text>
+
+  <rect x="515" y="85" width="200" height="135" class="panel"/>
+  <text x="615" y="120" text-anchor="middle" class="label">Query hinted</text>
+  <text x="615" y="150" text-anchor="middle" class="small">resource types</text>
+  <text x="615" y="172" text-anchor="middle" class="small">time window</text>
+  <text x="615" y="194" text-anchor="middle" class="small">source or network query</text>
+
+  <rect x="745" y="85" width="200" height="135" class="panel"/>
+  <text x="845" y="120" text-anchor="middle" class="label">Feed hinted</text>
+  <text x="845" y="150" text-anchor="middle" class="small">feed endpoint</text>
+  <text x="845" y="172" text-anchor="middle" class="small">patient data feed topic</text>
+  <text x="845" y="194" text-anchor="middle" class="small">skip broad discovery</text>
+</svg>

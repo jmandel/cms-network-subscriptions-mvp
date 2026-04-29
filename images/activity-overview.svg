@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="460" viewBox="0 0 980 460" role="img" aria-labelledby="title desc">
+  <title id="title">Network activity notification overview</title>
+  <desc id="desc">A client subscribes to a network activity endpoint, receives a notification, then follows hints to discovery, network query, source query, or source feed subscription.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #2b4a5f; stroke-width: 2; rx: 8; }
+      .soft { fill: #eef6f3; stroke: #2b4a5f; stroke-width: 2; rx: 8; }
+      .label { font-family: Arial, sans-serif; font-size: 16px; fill: #14212b; }
+      .small { font-family: Arial, sans-serif; font-size: 13px; fill: #33434f; }
+      .line { stroke: #2b4a5f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #6d7f8b; stroke-width: 2; fill: none; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect x="40" y="165" width="180" height="90" class="box"/>
+  <text x="130" y="202" text-anchor="middle" class="label">Client app</text>
+  <text x="130" y="226" text-anchor="middle" class="small">authorized subscriber</text>
+
+  <rect x="380" y="60" width="220" height="95" class="soft"/>
+  <text x="490" y="98" text-anchor="middle" class="label">Network activity</text>
+  <text x="490" y="122" text-anchor="middle" class="small">control-plane topic</text>
+
+  <rect x="380" y="305" width="220" height="95" class="box"/>
+  <text x="490" y="343" text-anchor="middle" class="label">RLS or network query</text>
+  <text x="490" y="367" text-anchor="middle" class="small">may accept opaque handle</text>
+
+  <rect x="720" y="70" width="210" height="85" class="box"/>
+  <text x="825" y="105" text-anchor="middle" class="label">Source FHIR endpoint</text>
+  <text x="825" y="129" text-anchor="middle" class="small">query or read</text>
+
+  <rect x="720" y="285" width="210" height="100" class="box"/>
+  <text x="825" y="323" text-anchor="middle" class="label">Source feed endpoint</text>
+  <text x="825" y="347" text-anchor="middle" class="small">US Core Patient Data Feed</text>
+
+  <path d="M220 190 C290 160 310 110 380 108" class="line"/>
+  <text x="260" y="130" class="small">1. subscribe</text>
+
+  <path d="M380 135 C315 165 290 210 220 215" class="line"/>
+  <text x="250" y="235" class="small">2. activity notification</text>
+
+  <path d="M220 238 C285 300 315 350 380 352" class="dash"/>
+  <text x="245" y="332" class="small">3a. rediscover or query network</text>
+
+  <path d="M600 352 C655 350 675 335 720 334" class="dash"/>
+  <text x="625" y="380" class="small">narrowed result</text>
+
+  <path d="M220 185 C430 15 615 70 720 108" class="dash"/>
+  <text x="430" y="34" class="small">3b. query source</text>
+
+  <path d="M220 235 C430 435 610 365 720 338" class="dash"/>
+  <text x="418" y="426" class="small">3c. subscribe to source feed</text>
+</svg>
