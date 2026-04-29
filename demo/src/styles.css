@@ -79,8 +79,9 @@ h1 {
 }
 
 .workspace {
+  align-items: start;
   display: grid;
-  grid-template-columns: 310px minmax(520px, 1fr) minmax(380px, 520px);
+  grid-template-columns: minmax(280px, 310px) minmax(0, 1fr) minmax(360px, 520px);
   gap: 14px;
   margin: 0 auto;
   max-width: 1800px;
@@ -91,6 +92,7 @@ h1 {
   border: 1px solid #d8e0e5;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(15, 35, 45, 0.05);
+  min-width: 0;
 }
 
 .left-rail,
@@ -219,7 +221,7 @@ h1 {
 
 .actor-map {
   display: grid;
-  grid-template-columns: repeat(5, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
@@ -231,7 +233,13 @@ h1 {
   gap: 8px;
   grid-template-columns: 22px 1fr;
   min-height: 54px;
+  min-width: 0;
   padding: 10px;
+}
+
+.actor-node span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .actor-node:nth-child(1) svg {
@@ -396,7 +404,7 @@ h1 {
   justify-content: center;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1500px) {
   .workspace {
     grid-template-columns: 290px minmax(0, 1fr);
   }
