@@ -15,6 +15,8 @@ export type ActivityType =
   | "capability-changed"
   | (string & {});
 
+export type ActivityConfidence = "confirmed" | "probable" | "possible";
+
 export type ClientActionCode =
   | "rediscover"
   | "query-network"
@@ -28,6 +30,7 @@ export interface NetworkActivitySignal {
   observedAt: FhirInstant;
   activityType: ActivityType;
   detailLevel: DetailLevel;
+  confidence?: ActivityConfidence;
   handle?: OpaqueActivityHandle;
   source?: SourceHint;
   activityWindow?: TimeWindow;
@@ -38,7 +41,7 @@ export interface NetworkActivitySignal {
 
 export interface PatientContext {
   id: string;
-  scope: "network" | "source" | "client";
+  scope: "network" | "client";
   reference?: string;
 }
 
@@ -103,6 +106,7 @@ export interface ActionParameters {
   discoveryHint?: string;
   resourceTypes?: FhirResourceType[];
   since?: FhirInstant;
+  until?: FhirInstant;
   topic?: Url;
   queryTemplate?: string;
   extensions?: Record<string, unknown>;

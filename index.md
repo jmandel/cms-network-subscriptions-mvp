@@ -29,7 +29,8 @@ Together, these reduce blind polling. The network can say "look here" or "run a 
 4. **Opaque handles enable narrowed follow-up.** The network can include an opaque `activity-handle` that the client passes unchanged into follow-up calls. Downstream services can use the handle to narrow processing without revealing why.
 5. **No app-specific source memory required at the network.** The network can identify a source when it can. The client decides whether that source is new, known, already subscribed, or irrelevant.
 6. **Existing RLS remains valid.** Activity notifications can point clients back to existing discovery/RLS flows, or provide enough detail to bypass a broad RLS query.
-7. **Authorization is not solved here.** This specification assumes the network sends activity notifications only when the client is authorized to receive that signal.
+7. **No source-scoped patient context in the network signal.** A source action may point to a source, but the client still obtains source authorization and source-scoped patient context from that source.
+8. **Authorization is not solved here.** This specification assumes the network sends activity notifications only when the client is authorized to receive that signal.
 
 ## 3. What A Network Might Observe
 
@@ -43,6 +44,8 @@ A network may learn about patient-relevant activity from many operational signal
 - A permitted administrative workflow indicates that a source may now have data.
 
 This proposal does not standardize how the network learns the activity. It only standardizes the client-facing notification pattern.
+
+Activity notifications are allowed to be conservative. A signal can mean "the network has confirmed new activity" or only "the network has enough reason to suggest a follow-up." The optional `confidence` field lets a network distinguish these cases without disclosing the underlying evidence.
 
 ## 4. Actors
 
@@ -146,6 +149,7 @@ export interface NetworkActivitySignal {
   observedAt: FhirInstant;
   activityType: ActivityType;
   detailLevel: DetailLevel;
+  confidence?: ActivityConfidence;
   handle?: OpaqueActivityHandle;
   source?: SourceHint;
   activityWindow?: TimeWindow;
@@ -166,10 +170,11 @@ export type ClientActionCode =
 | Parameter | Cardinality | Type | Meaning |
 |-----------|-------------|------|---------|
 | `activity-id` | 1..1 | `valueString` | Stable id for deduplication. |
-| `patient` | 1..1 | `valueString` | Endpoint-scoped patient id or patient handle known to the subscriber. |
+| `patient` | 1..1 | `valueString` | Network Activity Endpoint-scoped patient id or patient handle known to the subscriber. |
 | `activity-type` | 1..1 | `valueCode` | Broad type of signal. Minimum value is `activity-detected`. |
 | `detail-level` | 1..1 | `valueCode` | `opaque`, `source-hinted`, `query-hinted`, or `feed-hinted`. |
 | `observed-at` | 1..1 | `valueInstant` | When the network observed the activity. |
+| `confidence` | 0..1 | `valueCode` | `confirmed`, `probable`, or `possible`. |
 | `activity-handle` | 0..1 | `valueString` | Opaque handle the client may pass into follow-up actions. |
 | `activity-handle-expires` | 0..1 | `valueInstant` | Optional expiration for the handle. |
 | `source-organization` | 0..1 | `resource` | Minimal FHIR `Organization` identifying the source, usually by NPI, CCN, or network identifier. |
@@ -203,6 +208,16 @@ Networks may define additional codes by agreement, but clients should not need c
 
 Detail level is descriptive, not a security label. Authorization and disclosure policy are still enforced by the network and downstream sources.
 
+### 7.5 Confidence
+
+| Code | Meaning |
+|------|---------|
+| `confirmed` | The network observed a concrete event, state change, or source assertion. |
+| `probable` | The network has strong reason to suggest follow-up, but the signal may not correspond to retrievable clinical data. |
+| `possible` | The signal is intentionally weak or conservative. The client should expect broader follow-up and possible empty results. |
+
+If omitted, clients should treat confidence as unknown and should not assume that data will be available.
+
 ## 8. Suggested Actions
 
 Suggested actions are finite so clients can implement predictable behavior. They are still hints, not commands.
@@ -218,7 +233,36 @@ Suggested actions may be ranked. A client may take the first action it supports,
 
 Actions that name a source do not carry a source-scoped patient id. If the client does not already have an authorized source context, it authorizes at the source first and uses the patient context returned by that source.
 
-### 8.1 Opaque Activity Handles
+### 8.1 Suggested Action Parameters
+
+Each `suggested-action` part SHALL include `code`. Other parts depend on the action:
+
+| Action | Required parts | Optional parts |
+|--------|----------------|----------------|
+| `rediscover` | `code` | `rank`, `network-endpoint`, `discovery-hint`, `activity-handle`, `handle-parameter` |
+| `query-network` | `code` and either `network-endpoint` or a documented default network query endpoint | `rank`, `query-template`, `activity-handle`, `handle-parameter`, `resource-type`, `since`, `until` |
+| `query-source` | `code` and `source-endpoint`, either in the action or top-level message | `rank`, `resource-type`, `since`, `until`, `activity-handle`, `handle-parameter` |
+| `subscribe-source` | `code`, `feed-endpoint`, and `topic` | `rank`, `resource-type`, `activity-handle`, `handle-parameter` |
+
+The following part names are defined for suggested actions:
+
+| Part | Type | Meaning |
+|------|------|---------|
+| `code` | `valueCode` | One of the action codes above. |
+| `rank` | `valueInteger` | Lower numbers are preferred. |
+| `network-endpoint` | `valueUrl` | Network service endpoint for discovery or network query. |
+| `source-endpoint` | `valueUrl` | Source FHIR endpoint for query or read. |
+| `feed-endpoint` | `valueUrl` | Source feed endpoint for Patient Data Feed subscription setup. |
+| `topic` | `valueUrl` | Subscription topic, usually the US Core Patient Data Feed topic. |
+| `resource-type` | `valueCode` | Resource type worth querying or subscribing for. |
+| `since` | `valueInstant` | Suggested lower bound for follow-up query. |
+| `until` | `valueInstant` | Suggested upper bound for follow-up query. |
+| `activity-handle` | `valueString` | Opaque handle to pass into the follow-up. |
+| `handle-parameter` | `valueString` | Name the follow-up service expects for the handle. |
+| `discovery-hint` | `valueString` | Opaque hint for the network's discovery/RLS flow. |
+| `query-template` | `valueString` | Optional query template documented by the network. |
+
+### 8.2 Opaque Activity Handles
 
 An `activity-handle` is an opaque value scoped to the network, client, patient, and activity. The client does not inspect it. The client passes it unchanged when a suggested action says to do so.
 
@@ -232,7 +276,7 @@ The handle is not:
 - A guarantee that data exists.
 - Authorization to retrieve data.
 
-### 8.2 Passing Handles In Follow-Up Calls
+### 8.3 Passing Handles In Follow-Up Calls
 
 This proposal does not require one universal binding for `activity-handle`. The suggested action can name how the handle should be passed, such as `handle-parameter: activity-handle`.
 
@@ -416,6 +460,7 @@ The notification is opaque, but the follow-up handle lets the network return a n
     { "name": "patient", "valueString": "network-patient-123" },
     { "name": "activity-type", "valueCode": "activity-detected" },
     { "name": "detail-level", "valueCode": "opaque" },
+    { "name": "confidence", "valueCode": "probable" },
     { "name": "observed-at", "valueInstant": "2026-04-29T16:30:00Z" },
     { "name": "activity-handle", "valueString": "opaque-downscope-handle" },
     {
@@ -505,6 +550,7 @@ Networks should choose the least detailed notification that still gives the clie
 - SHALL deliver notification bundles using the FHIR R4 Subscriptions Backport format.
 - SHALL include a `Parameters` focus resource with `activity-id`, `patient`, `activity-type`, `detail-level`, `observed-at`, and at least one `suggested-action`.
 - SHALL NOT include clinical resources or clinical resource ids in the activity notification.
+- SHALL NOT include source-scoped patient identifiers in the activity notification.
 - SHOULD include an `activity-handle` when the suggested action can be down-scoped by follow-up services.
 - MAY include source, endpoint, resource-type, time-window, and feed hints.
 

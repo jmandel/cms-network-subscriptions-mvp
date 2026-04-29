@@ -1,4 +1,4 @@
 .claude/
 .venv/
-demo/
+node_modules/
 docs/
