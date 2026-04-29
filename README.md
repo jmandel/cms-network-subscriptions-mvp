@@ -10,6 +10,13 @@ This branch is intentionally standalone. It explores a small control-plane MVP:
 
 Start with [index.md](index.md).
 
+Run the browser simulator:
+
+```sh
+bun install
+bun run dev
+```
+
 Additional working notes:
 
 - [design-review.md](design-review.md) critiques the initial draft and records the adjustments made after an implementability pass.
