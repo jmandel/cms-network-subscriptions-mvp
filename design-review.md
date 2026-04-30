@@ -16,8 +16,9 @@ This note records an implementability critique of the initial standalone draft a
 - Added `confidence` with `confirmed`, `probable`, and `possible` values.
 - Promoted "no data-holder-specific patient context in the network signal" into the design principles and conformance summary.
 - Removed `client-action` from the wire and made follow-up derivable from the most specific disclosed hint.
-- Replaced separate organization/query/read/subscribe fields with flat `follow-up-read`, `follow-up-search`, and `follow-up-subscribe` hints.
-- Reframed `resource-type` as descriptive metadata, not a follow-up instruction.
+- Replaced separate organization/query/read/subscribe fields with flat `follow-up-read`, `follow-up-search`, `follow-up-subscribe`, and `follow-up-discovery` hints.
+- Removed `resource-type` from the MVP core so clients do not infer clinical queries from loose metadata.
+- Switched network activity delivery to empty wake-up webhooks plus authenticated `$events` retrieval.
 - Clarified that data-holder hints require data-holder authorization before a data-holder-specific patient id is available.
 - Added [reference-implementation.md](reference-implementation.md) to define a browser-based simulation dashboard.
 

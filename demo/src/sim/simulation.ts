@@ -9,9 +9,10 @@ import {
   createNetworkSubscription,
   createSourceSubscription,
   networkActivityBundle,
+  networkActivityEventsBundle,
   organization,
   patientDataFeedBundle,
-  parseNetworkActivityBundle,
+  parseNetworkActivityBundles,
 } from "./fhir";
 import { SimKernel } from "./kernel";
 import type {
@@ -47,7 +48,12 @@ function opaqueToken(prefix: string, eventNumber: number) {
   return `${prefix}-${mixed.toString(36).padStart(7, "0")}`;
 }
 
-type ActivityHintLevel = "opaque" | "organization-hinted" | "search-hinted" | "read-hinted" | "subscription-hinted";
+type ActivityHintLevel =
+  | "discovery-hinted"
+  | "organization-hinted"
+  | "search-hinted"
+  | "read-hinted"
+  | "subscription-hinted";
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
@@ -56,7 +62,7 @@ function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
   if (signal.followUpSearch?.length) return "search-hinted";
   if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription-hinted";
   if (signal.dataHolderOrganization) return "organization-hinted";
-  return "opaque";
+  return "discovery-hinted";
 }
 
 export class NetworkActivitySimulation {
@@ -266,7 +272,7 @@ export class NetworkActivitySimulation {
         });
       }
 
-      if (action.code === "rediscover") {
+      if (action.code === "discover-network" || action.code === "rediscover") {
         const response = this.kernel.send({
           from: "client",
           to: "rls",
@@ -276,28 +282,12 @@ export class NetworkActivitySimulation {
           body: {
             patient: signal.patient.id,
             activityHandle: signal.handle?.value,
+            followUpDiscovery: action.followUpDiscovery ?? signal.followUpDiscovery,
           },
           correlationId: signal.activityId,
-          summary: "Run RLS discovery",
+          summary: "Run network discovery/RLS",
         });
         this.learnSourcesFromResponse(response, "RLS");
-      }
-
-      if (action.code === "query-network") {
-        const response = this.kernel.send({
-          from: "client",
-          to: "rls",
-          method: "POST",
-          path: "/network/fhir/$resolve-activity",
-          headers: { "content-type": "application/fhir+json" },
-          body: {
-            resourceType: "Parameters",
-            parameter: [{ name: "activity-handle", valueString: signal.handle?.value }],
-          },
-          correlationId: signal.activityId,
-          summary: "Resolve activity at network",
-        });
-        this.learnSourcesFromResponse(response, "network query");
       }
 
       if (action.code === "search-data-holder") {
@@ -456,7 +446,17 @@ export class NetworkActivitySimulation {
           createdAt: new Date().toISOString(),
         };
         const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence, body.followUpRead);
-        const bundle = networkActivityBundle(signal, eventNumber, context.state.network.subscriptionId ?? "network-sub-1");
+        context.state.network.events[eventNumber] = {
+          eventNumber,
+          signal,
+          createdAt: new Date().toISOString(),
+        };
+        const bundle = networkActivityBundle(
+          signal,
+          eventNumber,
+          context.state.network.subscriptionId ?? "network-sub-1",
+          "empty",
+        );
 
         if (context.state.network.dropNextWebhook) {
           context.state.network.dropNextWebhook = false;
@@ -478,9 +478,40 @@ export class NetworkActivitySimulation {
           body: bundle,
           kind: "webhook",
           correlationId: signal.activityId,
-          summary: `Deliver network activity ${hintLevelForSignal(signal)}`,
+          summary: `Wake up client for network activity ${eventNumber}`,
         });
         return json(request, 202, { accepted: true, delivered: true, eventNumber });
+      },
+    });
+
+    this.kernel.register({
+      actor: "network",
+      method: "GET",
+      pathPattern: "/network/fhir/Subscription/:id/$events",
+      handle: (request, context) => {
+        const since = Number(firstQueryValue(request.query.eventsSinceNumber) ?? 1);
+        const until = Number(firstQueryValue(request.query.eventsUntilNumber) ?? since);
+        const content = firstQueryValue(request.query.content) === "empty" ? "empty" : "full-resource";
+        const events = Object.values(context.state.network.events)
+          .filter((event) => event.eventNumber >= since && event.eventNumber <= until)
+          .sort((a, b) => a.eventNumber - b.eventNumber);
+        if (events.length === 0) {
+          return json(request, 410, {
+            resourceType: "OperationOutcome",
+            issue: [
+              {
+                severity: "error",
+                code: "not-found",
+                diagnostics: "Requested network activity events are no longer available.",
+              },
+            ],
+          });
+        }
+        return json(
+          request,
+          200,
+          networkActivityEventsBundle(events, context.state.network.subscriptionId ?? pathPart(request.path, 3), content),
+        );
       },
     });
 
@@ -489,10 +520,17 @@ export class NetworkActivitySimulation {
       method: "POST",
       pathPattern: "/app/network-activity",
       handle: (request, context) => {
-        const signal = parseNetworkActivityBundle(request.body);
         const status = (request.body as any)?.entry?.[0]?.resource;
-        const eventNumber = Number(status?.notificationEvent?.[0]?.eventNumber ?? 0);
-        if (eventNumber > context.state.app.lastNetworkEventNumber + 1) {
+        const eventNumbers =
+          status?.notificationEvent?.map?.((event: any) => Number(event.eventNumber)).filter(Boolean) ?? [];
+        const eventNumber = Math.max(0, ...eventNumbers);
+        if (!eventNumber) {
+          return json(request, 400, { error: "Missing eventNumber" });
+        }
+        const since = eventNumber > context.state.app.lastNetworkEventNumber + 1
+          ? context.state.app.lastNetworkEventNumber + 1
+          : eventNumber;
+        if (since < eventNumber) {
           context.trace({
             kind: "decision",
             actor: "client",
@@ -502,6 +540,18 @@ export class NetworkActivitySimulation {
               received: eventNumber,
             },
           });
+        }
+
+        const eventsResponse = context.send({
+          from: "client",
+          to: "network",
+          method: "GET",
+          path: `/network/fhir/Subscription/${context.state.app.networkSubscriptionId ?? "network-sub-1"}/$events?eventsSinceNumber=${since}&eventsUntilNumber=${eventNumber}&content=full-resource`,
+          headers: { authorization: `Bearer ${context.state.app.networkToken ?? "network-token-123"}` },
+          correlationId: request.correlationId,
+          summary: since === eventNumber ? "Retrieve authoritative activity event" : "Retrieve missed activity event range",
+        });
+        if (eventsResponse.status >= 400) {
           context.state.app.pendingActions.push({
             signal: {
               topic: NETWORK_ACTIVITY_TOPIC,
@@ -509,35 +559,38 @@ export class NetworkActivitySimulation {
               patient: { id: PATIENT_ID, scope: "network" },
               observedAt: new Date().toISOString(),
               activityType: "activity-detected",
+              followUpDiscovery: "ordinary-network-discovery",
             },
             action: {
-              code: "rediscover",
+              code: "discover-network",
+              followUpDiscovery: "ordinary-network-discovery",
             },
           });
+          return json(request, 202, { accepted: true, recovery: true });
         }
-        context.state.app.lastNetworkEventNumber = Math.max(context.state.app.lastNetworkEventNumber, eventNumber);
 
-        if (!signal) {
-          return json(request, 400, { error: "Missing Parameters focus" });
-        }
-        if (context.state.app.seenActivityIds.includes(signal.activityId)) {
+        const signals = parseNetworkActivityBundles(eventsResponse.body);
+        for (const signal of signals) {
+          if (context.state.app.seenActivityIds.includes(signal.activityId)) {
+            context.trace({
+              kind: "decision",
+              actor: "client",
+              summary: `Ignored duplicate ${signal.activityId}`,
+              details: signal,
+            });
+            continue;
+          }
+          context.state.app.seenActivityIds.push(signal.activityId);
+          const action = this.chooseAction(signal);
+          context.state.app.pendingActions.push({ signal, action });
           context.trace({
             kind: "decision",
             actor: "client",
-            summary: `Ignored duplicate ${signal.activityId}`,
-            details: signal,
+            summary: `Queued ${action.code} for ${signal.activityId}`,
+            details: { signal, action },
           });
-          return json(request, 202, { accepted: true, duplicate: true });
         }
-        context.state.app.seenActivityIds.push(signal.activityId);
-        const action = this.chooseAction(signal);
-        context.state.app.pendingActions.push({ signal, action });
-        context.trace({
-          kind: "decision",
-          actor: "client",
-          summary: `Queued ${action.code} for ${signal.activityId}`,
-          details: { signal, action },
-        });
+        context.state.app.lastNetworkEventNumber = Math.max(context.state.app.lastNetworkEventNumber, eventNumber);
         return json(request, 202, { accepted: true });
       },
     });
@@ -547,13 +600,6 @@ export class NetworkActivitySimulation {
       method: "POST",
       pathPattern: "/network/rls/search",
       handle: (request, context) => json(request, 200, this.resolveSources(request.body, context.state, "RLS")),
-    });
-
-    this.kernel.register({
-      actor: "rls",
-      method: "POST",
-      pathPattern: "/network/fhir/$resolve-activity",
-      handle: (request, context) => json(request, 200, this.resolveSources(request.body, context.state, "network-query")),
     });
 
     this.kernel.register({
@@ -704,9 +750,10 @@ export class NetworkActivitySimulation {
         value: handle,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
+      followUpDiscovery: "ordinary-network-discovery",
     };
 
-    if (hintLevel !== "opaque") {
+    if (hintLevel !== "discovery-hinted") {
       signal.dataHolderOrganization = { identifiers: organization(source).identifier, name: source.name };
     }
     if (hintLevel === "search-hinted" || hintLevel === "read-hinted" || hintLevel === "subscription-hinted") {
@@ -714,13 +761,9 @@ export class NetworkActivitySimulation {
     }
     if (hintLevel === "read-hinted" && requestedRead) {
       signal.followUpRead = [requestedRead];
-      const target = resourceFromUrl(requestedRead);
-      signal.resourceTypes = target?.resourceType ? [target.resourceType] : undefined;
     } else if (hintLevel === "subscription-hinted") {
       signal.followUpSubscribe = [PATIENT_DATA_FEED_TOPIC];
-      signal.resourceTypes = ["Encounter", "Appointment"];
     } else if (hintLevel === "search-hinted") {
-      signal.resourceTypes = ["Encounter"];
       signal.followUpSearch = [followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START)];
     }
 
@@ -733,7 +776,7 @@ export class NetworkActivitySimulation {
     followUpRead?: string,
   ): ActivityHintLevel {
     if (policy === "opaque") {
-      return "opaque";
+      return "discovery-hinted";
     }
     if (followUpRead) {
       return "read-hinted";
@@ -760,10 +803,10 @@ export class NetworkActivitySimulation {
     if (signal.followUpSubscribe?.[0] && signal.dataHolderEndpoint) {
       return { code: "subscribe-data-holder", followUpSubscribe: signal.followUpSubscribe[0] };
     }
-    if (signal.dataHolderOrganization && signal.handle) {
-      return { code: "query-network" };
+    if (signal.followUpDiscovery) {
+      return { code: "discover-network", followUpDiscovery: signal.followUpDiscovery };
     }
-    return { code: "rediscover" };
+    return { code: "discover-network" };
   }
 
   private ensureSourceToken(source: SourceRecord) {
@@ -819,7 +862,7 @@ export class NetworkActivitySimulation {
     return undefined;
   }
 
-  private resolveSources(body: unknown, state: SimulationState, mode: "RLS" | "network-query") {
+  private resolveSources(body: unknown, state: SimulationState, mode: "RLS") {
     const handle = extractHandle(body);
     const mapping = handle ? state.network.handles[handle] : undefined;
     const candidates = mapping

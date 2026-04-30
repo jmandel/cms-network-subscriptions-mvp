@@ -140,6 +140,7 @@ export interface SuggestedActionView {
   url?: string;
   followUpSearch?: string;
   followUpSubscribe?: string;
+  followUpDiscovery?: string;
 }
 
 export interface SimulationState {
@@ -163,6 +164,7 @@ export interface SimulationState {
     subscriptionId?: string;
     dropNextWebhook: boolean;
     handles: Record<string, { sourceId: string; patientId: string; createdAt: string }>;
+    events: Record<number, { eventNumber: number; signal: NetworkActivitySignal; createdAt: string }>;
   };
   sources: Record<string, SourceRecord>;
   resources: Record<string, Record<string, unknown[]>>;

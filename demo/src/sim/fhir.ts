@@ -40,7 +40,7 @@ export function createNetworkSubscription() {
         extension: [
           {
             url: "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-payload-content",
-            valueCode: "full-resource",
+            valueCode: "empty",
           },
         ],
       },
@@ -117,9 +117,9 @@ export function activityParameters(signal: NetworkActivitySignal) {
   signal.followUpSubscribe?.forEach((topic) => {
     params.push({ name: "follow-up-subscribe", valueUrl: topic });
   });
-  signal.resourceTypes?.forEach((resourceType) => {
-    params.push({ name: "resource-type", valueCode: resourceType });
-  });
+  if (signal.followUpDiscovery) {
+    params.push({ name: "follow-up-discovery", valueString: signal.followUpDiscovery });
+  }
 
   return {
     resourceType: "Parameters",
@@ -127,11 +127,25 @@ export function activityParameters(signal: NetworkActivitySignal) {
   };
 }
 
-export function networkActivityBundle(signal: NetworkActivitySignal, eventNumber: number, subscriptionId: string) {
+export function networkActivityBundle(
+  signal: NetworkActivitySignal,
+  eventNumber: number,
+  subscriptionId: string,
+  content: "empty" | "full-resource" = "full-resource",
+) {
+  return networkActivityEventsBundle([{ signal, eventNumber }], subscriptionId, content);
+}
+
+export function networkActivityEventsBundle(
+  events: Array<{ signal: NetworkActivitySignal; eventNumber: number }>,
+  subscriptionId: string,
+  content: "empty" | "full-resource" = "full-resource",
+) {
+  const latest = events[events.length - 1];
   return {
     resourceType: "Bundle",
     type: "subscription-notification",
-    timestamp: signal.observedAt,
+    timestamp: latest?.signal.observedAt ?? new Date().toISOString(),
     entry: [
       {
         fullUrl: "urn:uuid:status-1",
@@ -139,22 +153,24 @@ export function networkActivityBundle(signal: NetworkActivitySignal, eventNumber
           resourceType: "SubscriptionStatus",
           status: "active",
           type: "event-notification",
-          eventsSinceSubscriptionStart: eventNumber,
-          notificationEvent: [
-            {
-              eventNumber,
-              timestamp: signal.observedAt,
-              focus: { reference: "urn:uuid:activity-1", type: "Parameters" },
-            },
-          ],
+          eventsSinceSubscriptionStart: latest?.eventNumber ?? 0,
+          notificationEvent: events.map(({ signal, eventNumber }) => ({
+            eventNumber,
+            timestamp: signal.observedAt,
+            ...(content === "full-resource"
+              ? { focus: { reference: `urn:uuid:activity-${eventNumber}`, type: "Parameters" } }
+              : {}),
+          })),
           subscription: { reference: `https://network.example.org/fhir/Subscription/${subscriptionId}` },
           topic: NETWORK_ACTIVITY_TOPIC,
         },
       },
-      {
-        fullUrl: "urn:uuid:activity-1",
-        resource: activityParameters(signal),
-      },
+      ...(content === "full-resource"
+        ? events.map(({ signal, eventNumber }) => ({
+            fullUrl: `urn:uuid:activity-${eventNumber}`,
+            resource: activityParameters(signal),
+          }))
+        : []),
     ],
   };
 }
@@ -191,7 +207,21 @@ export function patientDataFeedBundle(source: SourceRecord, eventNumber: number,
 }
 
 export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal | undefined {
-  const params = bundle?.entry?.find((entry: any) => entry.resource?.resourceType === "Parameters")?.resource;
+  return parseNetworkActivityBundles(bundle)[0];
+}
+
+export function parseNetworkActivityBundles(bundle: any): NetworkActivitySignal[] {
+  const paramsResources =
+    bundle?.entry
+      ?.filter((entry: any) => entry.resource?.resourceType === "Parameters")
+      ?.map((entry: any) => entry.resource) ?? [];
+  return paramsResources.flatMap((params: any) => {
+    const signal = parseActivityParameters(params);
+    return signal ? [signal] : [];
+  });
+}
+
+function parseActivityParameters(params: any): NetworkActivitySignal | undefined {
   if (!params?.parameter) {
     return undefined;
   }
@@ -210,6 +240,7 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
   const followUpRead = (values.get("follow-up-read") ?? []).map((item) => item.valueString);
   const followUpSearch = (values.get("follow-up-search") ?? []).map((item) => item.valueString);
   const followUpSubscribe = (values.get("follow-up-subscribe") ?? []).map((item) => item.valueUrl);
+  const followUpDiscovery = first("follow-up-discovery")?.valueString;
 
   return {
     topic: NETWORK_ACTIVITY_TOPIC,
@@ -234,6 +265,6 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
     followUpRead,
     followUpSearch,
     followUpSubscribe,
-    resourceTypes: (values.get("resource-type") ?? []).map((item) => item.valueCode),
+    followUpDiscovery,
   };
 }

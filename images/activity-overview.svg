@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="500" viewBox="0 0 1080 500" role="img" aria-labelledby="title desc">
   <title id="title">Network activity notification overview</title>
-  <desc id="desc">A client subscribes to a network activity endpoint, receives a notification, then follows hints to discovery or to one data-holder FHIR endpoint where it can query, read, or create a Patient Data Feed subscription.</desc>
+  <desc id="desc">A client subscribes to a network activity endpoint, receives an empty wake-up notification, retrieves authoritative activity content with events, then follows hints to discovery or to one data-holder FHIR endpoint where it can query, read, or create a Patient Data Feed subscription.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -46,12 +46,13 @@
 
   <path d="M405 153 C330 165 315 260 240 265" class="line"/>
   <rect x="276" y="281" width="152" height="22" class="tag-bg"/>
-  <text x="285" y="297" class="small">2. activity notification</text>
+  <text x="285" y="297" class="small">2. empty wake-up</text>
+  <text x="308" y="226" class="small">2b. pull $events</text>
 
   <!-- Opaque fallback through discovery or network query. -->
   <path d="M240 282 C305 325 340 373 405 373" class="dash"/>
   <rect x="256" y="333" width="205" height="24" class="tag-bg"/>
-  <text x="265" y="350" class="small">3a. rediscover or query network</text>
+  <text x="265" y="350" class="small">3a. follow-up-discovery</text>
 
   <path d="M635 373 C700 373 715 260 785 260" class="dash"/>
   <rect x="666" y="339" width="142" height="22" class="tag-bg"/>

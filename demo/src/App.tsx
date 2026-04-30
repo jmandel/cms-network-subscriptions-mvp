@@ -61,25 +61,25 @@ const scenarios: Array<{
   {
     id: "opaque-rls",
     label: "Opaque Activity",
-    short: "Signal only, then RLS.",
-    lesson: "A network can say that something changed without naming the data holder.",
-    steps: ["Opaque activity webhook", "Client passes handle to discovery", "RLS down-scopes fan-out"],
+    short: "Wake up, pull, then RLS.",
+    lesson: "A network can wake the client without naming the data holder; the client pulls the authoritative event before following discovery.",
+    steps: ["Empty wake-up webhook", "Client retrieves $events", "RLS down-scopes fan-out"],
     icon: Search,
   },
   {
     id: "subscription-hinted",
     label: "Subscribe Hint",
     short: "Use the hinted FHIR endpoint.",
-    lesson: "When policy allows, the notification can disclose one data-holder FHIR endpoint and the Patient Data Feed topic it supports.",
-    steps: ["Activity signal includes FHIR endpoint and topic", "Client authorizes at endpoint", "Client creates Patient Data Feed subscription"],
+    lesson: "When policy allows, the pulled activity event can disclose one data-holder FHIR endpoint and the Patient Data Feed topic it supports.",
+    steps: ["$events includes FHIR endpoint and topic", "Client authorizes at endpoint", "Client creates Patient Data Feed subscription"],
     icon: Bell,
   },
   {
     id: "known-data-holder",
     label: "Known Data Holder",
     short: "Run a hinted query.",
-    lesson: "If the notification includes a follow-up search URL, the client can run that search after data-holder authorization.",
-    steps: ["Signal includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
+    lesson: "If the pulled activity event includes a follow-up search URL, the client can run that search after data-holder authorization.",
+    steps: ["$events includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
     icon: Server,
   },
   {
@@ -87,7 +87,7 @@ const scenarios: Array<{
     label: "Read Hint",
     short: "Read one hinted resource.",
     lesson: "If policy allows a specific follow-up read URL, the client can authorize at the data holder and read that resource directly.",
-    steps: ["Signal includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
+    steps: ["$events includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
     icon: Database,
   },
   {
@@ -102,16 +102,16 @@ const scenarios: Array<{
     id: "missed-activity",
     label: "Missed Event",
     short: "Detect a gap.",
-    lesson: "Standard Subscription event numbers let the client notice missed network webhooks.",
-    steps: ["First webhook is dropped", "Next event number has a gap", "Client queues recovery discovery"],
+    lesson: "Standard Subscription event numbers let the client notice missed wake-ups and retrieve the retained event range.",
+    steps: ["First webhook is dropped", "Next event number has a gap", "Client retrieves $events range"],
     icon: Eye,
   },
   {
     id: "sensitive-data-holder",
     label: "Sensitive Policy",
     short: "Opaque by policy.",
-    lesson: "Sensitive data holders can force opaque notifications while still permitting handle-scoped follow-up.",
-    steps: ["Network withholds data-holder detail", "Client resolves through network", "Policy limits what comes back"],
+    lesson: "Sensitive data holders can force opaque activity events while still permitting handle-scoped follow-up.",
+    steps: ["Network withholds data-holder detail", "Client retrieves $events", "Policy limits what comes back"],
     icon: Shield,
   },
 ];
@@ -534,6 +534,7 @@ function SignalCard({ signal }: { signal: NonNullable<ReturnType<typeof networkS
           ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
           ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
           ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
+          ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
         ]}
       />
     </section>
@@ -551,6 +552,7 @@ function ActionCard({ action }: { action: NonNullable<ReturnType<typeof actionFr
           ["url", action.url ?? "none"],
           ["follow-up search", action.followUpSearch ?? "none"],
           ["follow-up subscribe", action.followUpSubscribe ?? "none"],
+          ["follow-up discovery", action.followUpDiscovery ?? "none"],
         ]}
       />
     </section>
@@ -841,7 +843,7 @@ function networkSignalFromTrace(event: TraceEvent): NetworkActivitySignal | unde
   if (fromDetails?.activityId) {
     return fromDetails as NetworkActivitySignal;
   }
-  return parseNetworkActivityBundle(event.request?.body);
+  return parseNetworkActivityBundle(event.response?.body) ?? parseNetworkActivityBundle(event.request?.body);
 }
 
 function actionFromItem(item: TrafficItem) {
@@ -862,6 +864,7 @@ function actionFromTrace(event: TraceEvent) {
         url?: string;
         followUpSearch?: string;
         followUpSubscribe?: string;
+        followUpDiscovery?: string;
       }
     : null;
 }
@@ -871,6 +874,7 @@ function hintLevelFromSignal(signal: NetworkActivitySignal) {
   if (signal.followUpSearch?.length) return "search hinted";
   if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription hinted";
   if (signal.dataHolderOrganization) return "organization hinted";
+  if (signal.followUpDiscovery) return "discovery hinted";
   return "opaque";
 }
 
@@ -882,7 +886,7 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
       ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
       ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
       ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
-      ["resource types", signal.resourceTypes?.join(", ") || "not supplied"],
+      ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
     ];
   }
 

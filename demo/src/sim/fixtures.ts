@@ -72,6 +72,7 @@ export function createInitialState(): SimulationState {
       eventCounter: 0,
       dropNextWebhook: false,
       handles: {},
+      events: {},
     },
     sources: sourceMap,
     resources: {

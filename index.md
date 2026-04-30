@@ -29,7 +29,7 @@ Together, these reduce blind polling. The network can say "look here" or "run a 
 4. **Opaque handles enable narrowed follow-up.** The network can include an opaque `activity-handle` that the client passes unchanged into follow-up calls. Downstream services can use the handle to narrow processing without revealing why.
 5. **No app-specific data-holder memory required at the network.** The network can identify a data holder when it can. The client decides whether that data holder is new, known, already subscribed, or irrelevant.
 6. **Existing RLS remains valid.** Activity notifications can point clients back to existing discovery/RLS flows, or provide enough detail to bypass a broad RLS query.
-7. **No data-holder-scoped patient context in the network signal.** A data-holder hint may point to an organization or endpoint, but the client still obtains data-holder authorization and the data-holder-specific patient id from that data holder.
+7. **Endpoint-scoped patient context.** A patient id is meaningful only at the endpoint that issued it. A data-holder hint may point to an organization or endpoint, but the client still obtains data-holder authorization and the data-holder-specific patient id from that data holder.
 8. **Ids and handles are opaque to clients.** Clients do not parse `activity-id` or `activity-handle`, and networks should avoid values that reveal sensitive meaning to clients.
 9. **Authorization is not solved here.** This specification assumes the network sends activity notifications only when the client is authorized to receive that signal.
 
@@ -64,7 +64,7 @@ This proposal defines one network-level topic:
 https://cms.gov/fhir/SubscriptionTopic/network-activity
 ```
 
-The topic's focus resource is `Parameters`, delivered as `full-resource` content in a FHIR R4 Subscriptions Backport notification bundle.
+The topic's focus resource is `Parameters`. REST-hook delivery uses an `empty` wake-up notification, and the client retrieves the authoritative `Parameters` content from the Network Activity Endpoint using the FHIR R4 Subscriptions Backport `$events` operation with `content=full-resource`.
 
 The use of `Parameters` is intentional. It lets the proposal define a small logical message without requiring new FHIR resource types.
 
@@ -112,7 +112,7 @@ Content-Type: application/fhir+json
       "extension": [
         {
           "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-payload-content",
-          "valueCode": "full-resource"
+            "valueCode": "empty"
         }
       ]
     }
@@ -153,7 +153,7 @@ export interface NetworkActivitySignal {
   followUpRead?: UrlTemplate[];
   followUpSearch?: UrlTemplate[];
   followUpSubscribe?: Url[];
-  resourceTypes?: FhirResourceType[];
+  followUpDiscovery?: string;
   extensions?: Record<string, unknown>;
 }
 ```
@@ -174,7 +174,7 @@ export interface NetworkActivitySignal {
 | `follow-up-read` | 0..* | `valueString` | Absolute or templated GET URL for a specific FHIR resource. |
 | `follow-up-search` | 0..* | `valueString` | Absolute or templated FHIR search URL. |
 | `follow-up-subscribe` | 0..* | `valueUrl` | SubscriptionTopic URL the client may use at `data-holder-endpoint`, usually US Core Patient Data Feed. |
-| `resource-type` | 0..* | `valueCode` | Optional descriptive resource types, such as `Encounter` or `Appointment`. Clients SHOULD prefer explicit `follow-up-*` hints when present. |
+| `follow-up-discovery` | 0..1 | `valueString` | Network-defined discovery/RLS follow-up hint. The value is opaque to the client except as documented by the network. |
 
 ### 7.3 Activity Types
 
@@ -206,12 +206,15 @@ Recommended client order:
 1. If `follow-up-read` is present, authorize at the data holder and run the first usable GET URL.
 2. Else if `follow-up-search` is present, authorize at the data holder and run the first usable GET search URL.
 3. Else if `follow-up-subscribe` and `data-holder-endpoint` are present, authorize at `data-holder-endpoint` and create or refresh a Patient Data Feed subscription using that topic.
-4. Else run the network's existing discovery/RLS flow, passing `activity-handle` when present.
-5. If the client cannot use a hint, it falls back to rediscovery.
+4. Else if `follow-up-discovery` is present, run the network's documented discovery/RLS workflow, passing the hint and `activity-handle` when supported.
+5. Else run ordinary discovery/RLS, passing `activity-handle` when supported.
+6. If the client cannot use a hint, it falls back to ordinary discovery/RLS.
 
 This keeps the notification from becoming a workflow language. The network can provide better hints when policy allows; the client decides how far to follow them.
 
 Data-holder hints do not carry a data-holder-specific patient id. If the client does not already have an authorized data-holder context, it authorizes at the data holder first and uses the patient context returned by that data holder.
+
+The meaning of `{{patient}}` is always scoped to the endpoint where the follow-up is performed. For data-holder follow-up, `{{patient}}` means the data-holder-scoped patient id returned during authorization at that data holder. For network discovery follow-up, `{{patient}}` means the Network Activity Endpoint-scoped patient id associated with the subscription token. Clients SHALL NOT reuse a patient id from one endpoint at another endpoint.
 
 `follow-up-read` and `follow-up-search` are explicit follow-up templates, not requests for the client to infer a query from loose fields. A network can send:
 
@@ -234,6 +237,8 @@ The template MAY be relative to `data-holder-endpoint`, for example `Encounter?p
 The client URL-encodes substituted values. Receiving services are free to ignore unsupported handle parameters.
 
 No method field is needed in the MVP: `follow-up-read` and `follow-up-search` are GET requests, and `follow-up-subscribe` means "create a FHIR `Subscription` at `data-holder-endpoint` using this topic."
+
+`follow-up-discovery` is intentionally less prescriptive. Its value is opaque to the client except as documented by the network. The MVP does not define the transport, method, body shape, or response shape for existing RLS/discovery workflows.
 
 The subscription topic advertised by a data-holder FHIR endpoint is the US Core Patient Data Feed topic:
 
@@ -267,7 +272,45 @@ If the client cannot pass the handle in the requested way, it may still perform 
 
 ### 9.1 Minimal Opaque Notification
 
-The network discloses no data-holder detail. The app should rediscover or query the network, passing the handle.
+The network discloses no data-holder detail in the webhook. The REST-hook delivery is only a wake-up signal:
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "subscription-notification",
+  "timestamp": "2026-04-29T16:00:00Z",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:status-1",
+      "resource": {
+        "resourceType": "SubscriptionStatus",
+        "status": "active",
+        "type": "event-notification",
+        "eventsSinceSubscriptionStart": 42,
+        "notificationEvent": [
+          {
+            "eventNumber": 42,
+            "timestamp": "2026-04-29T15:59:50Z"
+          }
+        ],
+        "subscription": {
+          "reference": "https://network.example.org/fhir/Subscription/sub-123"
+        },
+        "topic": "https://cms.gov/fhir/SubscriptionTopic/network-activity"
+      }
+    }
+  ]
+}
+```
+
+The client then retrieves the authoritative event content:
+
+```http
+GET https://network.example.org/fhir/Subscription/sub-123/$events?eventsSinceNumber=42&eventsUntilNumber=42&content=full-resource
+Authorization: Bearer {access_token}
+```
+
+The `$events` response includes the `Parameters` focus resource:
 
 ```json
 {
@@ -287,7 +330,7 @@ The network discloses no data-holder detail. The app should rediscover or query 
             "eventNumber": 42,
             "timestamp": "2026-04-29T15:59:50Z",
             "focus": {
-              "reference": "urn:uuid:activity-1",
+              "reference": "urn:uuid:activity-42",
               "type": "Parameters"
             }
           }
@@ -299,7 +342,7 @@ The network discloses no data-holder detail. The app should rediscover or query 
       }
     },
     {
-      "fullUrl": "urn:uuid:activity-1",
+      "fullUrl": "urn:uuid:activity-42",
       "resource": {
         "resourceType": "Parameters",
         "parameter": [
@@ -308,13 +351,16 @@ The network discloses no data-holder detail. The app should rediscover or query 
           { "name": "activity-type", "valueCode": "activity-detected" },
           { "name": "observed-at", "valueInstant": "2026-04-29T15:59:50Z" },
           { "name": "confidence", "valueCode": "probable" },
-          { "name": "activity-handle", "valueString": "ah-9c3m1q8" }
+          { "name": "activity-handle", "valueString": "ah-9c3m1q8" },
+          { "name": "follow-up-discovery", "valueString": "ordinary-network-discovery" }
         ]
       }
     }
   ]
 }
 ```
+
+The app should rediscover or query the network, passing the handle when supported.
 
 ### 9.2 FHIR Endpoint With Subscribe Follow-Up
 
@@ -350,9 +396,7 @@ The network can disclose an organization and a data-holder FHIR endpoint that su
     {
       "name": "follow-up-subscribe",
       "valueUrl": "http://hl7.org/fhir/us/core/SubscriptionTopic/patient-data-feed"
-    },
-    { "name": "resource-type", "valueCode": "Encounter" },
-    { "name": "resource-type", "valueCode": "Appointment" }
+    }
   ]
 }
 ```
@@ -391,8 +435,7 @@ The network does not need to know whether the app already knows the data holder.
     {
       "name": "follow-up-search",
       "valueString": "https://valley-clinic.example.org/fhir/Encounter?patient={{patient}}&_lastUpdated=ge2026-04-29T15%3A00%3A00Z&activity-handle={{activity-handle}}"
-    },
-    { "name": "resource-type", "valueCode": "Encounter" }
+    }
   ]
 }
 ```
@@ -418,8 +461,7 @@ The network can disclose a data-holder endpoint and a specific read follow-up. T
     {
       "name": "follow-up-read",
       "valueString": "https://hospital.example.org/fhir/Encounter/enc-123"
-    },
-    { "name": "resource-type", "valueCode": "Encounter" }
+    }
   ]
 }
 ```
@@ -437,7 +479,8 @@ The notification is opaque, but the follow-up handle lets the network return a n
     { "name": "activity-type", "valueCode": "activity-detected" },
     { "name": "confidence", "valueCode": "probable" },
     { "name": "observed-at", "valueInstant": "2026-04-29T16:30:00Z" },
-    { "name": "activity-handle", "valueString": "ah-b5m8x2t" }
+    { "name": "activity-handle", "valueString": "ah-b5m8x2t" },
+    { "name": "follow-up-discovery", "valueString": "ordinary-network-discovery" }
   ]
 }
 ```
@@ -477,16 +520,24 @@ The network-level activity signal stays out of the clinical data path. The data-
 
 ## 12. Delivery And Catch-Up
 
-Delivery is best effort and at least once. Clients must be idempotent.
+REST-hook delivery is best effort. Servers MAY retry failed delivery, and clients SHOULD be idempotent, but clients SHALL NOT assume guaranteed at-least-once delivery.
 
-Notifications use standard FHIR subscription semantics:
+For the `network-activity` topic, REST-hook notifications use the FHIR Subscriptions Backport `empty` payload content mode. The webhook notification is a wake-up signal and SHALL NOT include the NetworkActivitySignal `Parameters` resource. This keeps the actionable payload behind the Network Activity Endpoint's normal authenticated FHIR API.
 
-- `eventNumber` lets clients detect gaps.
-- Heartbeat notifications can help clients notice a broken delivery path.
-- Clients may use standard subscription status and event history operations where supported.
-- If a client suspects it missed activity notifications, it should run discovery or network query again using its own recovery policy.
+Clients retrieve authoritative notification content from the Network Activity Endpoint using:
 
-This proposal does not require a network to maintain a complete activity log. Networks should document any event retention and catch-up behavior they support.
+```http
+GET [base]/Subscription/{id}/$events?eventsSinceNumber={n}&eventsUntilNumber={n}&content=full-resource
+Authorization: Bearer {access_token}
+```
+
+For this topic, Network Activity Endpoints SHALL honor `content=full-resource` for retained events and SHALL return notification bundles that include the NetworkActivitySignal `Parameters` focus resource.
+
+Clients SHOULD process network activity events by event number and remember the highest successfully processed event number per subscription. If a client receives event number N after last successfully processing event M, and N > M + 1, the client SHOULD retrieve events M+1 through N using `$events`.
+
+Network Activity Endpoints SHALL retain retrievable notification event content for at least 24 hours after notification generation. They SHOULD retain at least the most recent 100 events per active subscription, even when some events are older than 24 hours. They SHALL document their event retention window and any maximum supported `$events` range size.
+
+If requested event content is no longer available, the Network Activity Endpoint SHALL return a 4xx response with an `OperationOutcome` explaining that the requested events are no longer available. The client SHOULD then run ordinary discovery/RLS for the patient, passing the most recent `activity-handle` when available.
 
 ## 13. Security, Privacy, And Consent
 
@@ -497,6 +548,7 @@ Minimum assumptions:
 - The network sends activity notifications only when policy authorizes the client to receive that kind of signal.
 - Even an opaque activity notification may reveal sensitive information because it says something happened.
 - Optional data-holder hints may reveal more, especially if the organization or endpoint implies a sensitive service.
+- The webhook is only a wake-up signal, but clients should still authenticate the sender where practical and protect the endpoint from abusive wake-up traffic.
 - A hint is not authorization to retrieve clinical data.
 - Data-holder FHIR endpoints enforce their own authorization and access control before returning clinical resources or accepting Patient Data Feed subscriptions.
 - An `activity-handle` may narrow routing or processing, but it must not bypass authorization.
@@ -509,20 +561,23 @@ Networks should choose the least detailed notification that still gives the clie
 
 - SHALL support the `network-activity` topic.
 - SHALL accept subscriptions filtered to an endpoint-scoped patient context.
-- SHALL deliver notification bundles using the FHIR R4 Subscriptions Backport format.
-- SHALL include a `Parameters` focus resource with `activity-id`, `patient`, `activity-type`, and `observed-at`.
+- SHALL deliver empty wake-up notification bundles using the FHIR R4 Subscriptions Backport format.
+- SHALL support `Subscription/{id}/$events` with `content=full-resource` for retained `network-activity` events.
+- SHALL include a `Parameters` focus resource with `activity-id`, `patient`, `activity-type`, and `observed-at` in authoritative `$events` responses.
+- SHALL retain retrievable notification event content for at least 24 hours.
 - SHALL NOT include inline clinical resources in the activity notification.
 - SHALL NOT include data-holder-specific patient identifiers in the activity notification.
 - SHALL treat `activity-id` and `activity-handle` as opaque client-facing values.
 - SHOULD include an `activity-handle` when follow-up services can use it to reduce fan-out.
-- MAY include data-holder organization, data-holder endpoint, follow-up-read, follow-up-search, follow-up-subscribe, and resource-type hints.
+- MAY include data-holder organization, data-holder endpoint, follow-up-read, follow-up-search, follow-up-subscribe, and follow-up-discovery hints.
 
 ### Client
 
 - SHALL treat all data-holder and follow-up hints as hints, not commands.
 - SHALL treat `activity-handle` as opaque.
 - SHALL be idempotent for duplicate notifications.
-- SHOULD detect event gaps using `eventNumber`.
+- SHALL retrieve authoritative network activity content through `$events` before making follow-up decisions.
+- SHOULD detect event gaps using `eventNumber` and retrieve missing retained events through `$events`.
 - SHOULD follow the most specific usable hint and fall back to rediscovery.
 - SHOULD use Patient Data Feed subscriptions when the data-holder FHIR endpoint supports them and the client is authorized.
 
@@ -547,9 +602,8 @@ Networks should choose the least detailed notification that still gives the clie
 
 1. Should the topic URL live under a CMS namespace, an HL7 namespace, or a future implementation guide namespace?
 2. Should `follow-up-*` templates support only `{{patient}}` and `{{activity-handle}}`, or should a broader URI-template profile be allowed?
-3. Should there be a standard network `$resolve-activity` operation, or should handle-scoped discovery remain network-defined in the MVP?
-4. How much event retention should be expected for activity notification catch-up?
-5. Should data-holder hints use only FHIR `Organization`, or should they also allow FHIR `Endpoint` resources inline?
+3. Should handle-scoped discovery remain entirely network-defined in the MVP, or should a later version define a standard discovery operation?
+4. Should data-holder hints use only FHIR `Organization`, or should they also allow FHIR `Endpoint` resources inline?
 
 ## References
 

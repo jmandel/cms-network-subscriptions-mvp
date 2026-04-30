@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="290" viewBox="0 0 980 290" role="img" aria-labelledby="title desc">
   <title id="title">Network activity detail spectrum</title>
-  <desc id="desc">Notifications can range from opaque signals to data-holder organization hints, follow-up search hints, follow-up read hints, and follow-up subscribe hints.</desc>
+  <desc id="desc">Retrieved activity events can range from opaque discovery hints to data-holder organization hints, follow-up search hints, follow-up read hints, and follow-up subscribe hints.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -23,7 +23,7 @@
   <rect x="55" y="85" width="200" height="135" class="muted"/>
   <text x="155" y="120" text-anchor="middle" class="label">Opaque</text>
   <text x="155" y="150" text-anchor="middle" class="small">activity handle</text>
-  <text x="155" y="172" text-anchor="middle" class="small">rediscover</text>
+  <text x="155" y="172" text-anchor="middle" class="small">follow-up-discovery</text>
   <text x="155" y="194" text-anchor="middle" class="small">no data-holder details</text>
 
   <rect x="285" y="85" width="155" height="135" class="panel"/>

@@ -109,9 +109,10 @@ Responsibilities:
 
 - Authorize at the network.
 - Create the `network-activity` subscription.
-- Receive webhook notifications.
-- Decode the `Parameters` focus resource into the logical TypeScript model.
-- Follow the most specific usable hint: `follow-up-read`, then `follow-up-search`, then `follow-up-subscribe`, then RLS/discovery.
+- Receive empty wake-up webhook notifications.
+- Retrieve authoritative network activity content with `GET /network/fhir/Subscription/:id/$events?eventsSinceNumber=...&eventsUntilNumber=...&content=full-resource`.
+- Decode the retrieved `Parameters` focus resource into the logical TypeScript model.
+- Follow the most specific usable hint: `follow-up-read`, then `follow-up-search`, then `follow-up-subscribe`, then `follow-up-discovery`, then ordinary RLS/discovery.
 - Track known data holders and Patient Data Feed subscriptions.
 - Detect duplicate activity ids and event-number gaps.
 
@@ -128,10 +129,12 @@ Responsibilities:
 
 - Issue mock network tokens with network-scoped patient context.
 - Accept `Subscription` creates for the `network-activity` topic.
-- Convert high-level simulated events into activity notification bundles.
+- Convert high-level simulated events into retained activity events.
+- Deliver empty wake-up notifications for network activity.
+- Return authoritative full-resource event content from `$events`.
 - Apply disclosure policy: opaque, organization-hinted, search-hinted, read-hinted, or subscription-hinted.
-- Emit explicit follow-up hints such as `follow-up-read`, `follow-up-search`, and `follow-up-subscribe` when disclosure policy permits.
-- Mint and retain opaque activity handles.
+- Emit explicit follow-up hints such as `follow-up-read`, `follow-up-search`, `follow-up-subscribe`, and `follow-up-discovery` when disclosure policy permits.
+- Mint and retain opaque activity handles and retained events.
 
 Routes:
 
@@ -140,8 +143,8 @@ Routes:
 | `POST /network/token` | Mock token response with `patient`. |
 | `POST /network/fhir/Subscription` | Create network activity subscription. |
 | `GET /network/fhir/Subscription/:id` | Read subscription status. |
+| `GET /network/fhir/Subscription/:id/$events` | Retrieve retained network activity events with `content=full-resource`. |
 | `POST /network/internal/events` | Simulation-only event injection. |
-| `POST /network/fhir/$resolve-activity` | Optional network query using `activity-handle`. |
 
 ### RLS / Network Query Service
 
@@ -156,7 +159,6 @@ Routes:
 | Route | Meaning |
 |-------|---------|
 | `POST /network/rls/search` | Existing-style discovery query. |
-| `POST /network/fhir/$resolve-activity` | FHIR-shaped narrowed resolution. |
 
 ### Data-Holder FHIR Endpoint
 
@@ -197,15 +199,16 @@ Traffic:
 
 ### 2. Opaque Activity, Narrowed RLS
 
-The network sees an event but does not disclose the data holder. It sends an opaque activity notification with a handle. The client calls RLS with the handle. The network returns one data holder instead of a broad fan-out result.
+The network sees an event but does not disclose the data holder in the webhook. It sends an empty wake-up notification. The client retrieves the authoritative `Parameters` event through `$events`, sees `follow-up-discovery` and an `activity-handle`, and calls RLS with the handle. The network returns one data holder instead of a broad fan-out result.
 
 Traffic:
 
 1. Simulation event injection
-2. Webhook `POST /app/network-activity`
-3. App decision: no data-holder hint, run rediscovery
-4. `POST /network/rls/search` with `activity-handle`
-5. RLS response with narrowed data-holder list
+2. Empty wake-up webhook `POST /app/network-activity`
+3. `GET /network/fhir/Subscription/:id/$events?...&content=full-resource`
+4. App decision: no data-holder hint, run `follow-up-discovery`
+5. `POST /network/rls/search` with `activity-handle`
+6. RLS response with narrowed data-holder list
 
 ### 3. Subscription-Hinted New Data Holder
 
@@ -213,10 +216,11 @@ The network can disclose a data-holder FHIR endpoint that supports the Patient D
 
 Traffic:
 
-1. Webhook with a `data-holder-endpoint` and `follow-up-subscribe` notification
-2. `POST /data-holders/:dataHolderId/token`
-3. `POST /data-holders/:dataHolderId/fhir/Subscription`
-4. App state shows Patient Data Feed subscription active
+1. Empty wake-up webhook
+2. `$events` response with `data-holder-endpoint` and `follow-up-subscribe`
+3. `POST /data-holders/:dataHolderId/token`
+4. `POST /data-holders/:dataHolderId/fhir/Subscription`
+5. App state shows Patient Data Feed subscription active
 
 ### 4. Known Data Holder Activity
 
@@ -224,9 +228,10 @@ The network identifies a data holder. The client follows the search hint and run
 
 Traffic:
 
-1. Webhook with `data-holder-activity-detected`
-2. App decision: `follow-up-search` is the most specific usable hint
-3. `GET /data-holders/:dataHolderId/fhir/Encounter?patient=data-holder-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`
+1. Empty wake-up webhook
+2. `$events` response with `data-holder-activity-detected`
+3. App decision: `follow-up-search` is the most specific usable hint
+4. `GET /data-holders/:dataHolderId/fhir/Encounter?patient=data-holder-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z&activity-handle=...`
 
 ### 5. Specific Read Hint
 
@@ -234,9 +239,10 @@ The network can disclose a data-holder FHIR endpoint and specific Encounter read
 
 Traffic:
 
-1. Webhook with `follow-up-read`
-2. `POST /data-holders/:dataHolderId/token`
-3. `GET /data-holders/:dataHolderId/fhir/Encounter/:id`
+1. Empty wake-up webhook
+2. `$events` response with `follow-up-read`
+3. `POST /data-holders/:dataHolderId/token`
+4. `GET /data-holders/:dataHolderId/fhir/Encounter/:id`
 
 ### 6. Patient Data Feed Event
 
@@ -250,14 +256,14 @@ Traffic:
 
 ### 7. Missed Network Activity
 
-The simulation drops one webhook. The next notification has a gap in `eventNumber`. The client detects the gap and runs recovery discovery.
+The simulation drops one webhook. The next wake-up notification has a gap in `eventNumber`. The client detects the gap and retrieves the missing retained event range with `$events`.
 
 Traffic:
 
 1. Dropped webhook recorded as trace event
 2. Next webhook arrives with event-number gap
-3. App decision: recovery
-4. `POST /network/rls/search`
+3. `GET /network/fhir/Subscription/:id/$events?eventsSinceNumber={missingStart}&eventsUntilNumber={received}&content=full-resource`
+4. App queues follow-up actions for the retained events
 
 ### 8. Sensitive Data Holder Policy
 
@@ -265,9 +271,10 @@ The network observes an event at a sensitive data holder. Policy only allows an 
 
 Traffic:
 
-1. Webhook with no data-holder or follow-up hints
-2. `POST /network/rls/search` with `activity-handle`
-3. Response may be empty, delayed, or narrowed depending on policy controls
+1. Empty wake-up webhook
+2. `$events` response with no data-holder hints and `follow-up-discovery`
+3. `POST /network/rls/search` with `activity-handle`
+4. Response may be empty, delayed, or narrowed depending on policy controls
 
 ## Data Fixtures
 
@@ -299,7 +306,7 @@ Controls:
 Inspectors:
 
 - Raw JSON request/response.
-- Decoded FHIR notification summary.
+- Decoded wake-up notification and `$events` summary.
 - Logical `NetworkActivitySignal` view.
 - Follow-up explanation showing the exact URL or query template the app used.
 - State diff before and after each selected trace event.
@@ -307,8 +314,8 @@ Inspectors:
 ## Acceptance Criteria
 
 1. A user can run the bootstrap flow and see every internal HTTP-like message.
-2. A user can trigger opaque, organization-hinted, search-hinted, read-hinted, and subscription-hinted activity notifications.
-3. The traffic log shows webhook delivery and all follow-up requests with method, path, query, headers, body, status, and response body.
+2. A user can trigger discovery-hinted, organization-hinted, search-hinted, read-hinted, and subscription-hinted activity events.
+3. The traffic log shows empty webhook delivery, `$events` retrieval, and all follow-up requests with method, path, query, headers, body, status, and response body.
 4. The app state shows known data holders, Patient Data Feed subscriptions, last event number, and deduplicated activity ids.
 5. Opaque handles are visible as opaque strings and can be traced through follow-up calls.
 6. The same simulated event can produce different notifications when the network disclosure policy changes.

@@ -23,7 +23,7 @@ export interface NetworkActivitySignal {
   followUpRead?: UrlTemplate[];
   followUpSearch?: UrlTemplate[];
   followUpSubscribe?: Url[];
-  resourceTypes?: FhirResourceType[];
+  followUpDiscovery?: string;
   extensions?: Record<string, unknown>;
 }
 
@@ -49,11 +49,3 @@ export interface Identifier {
   system: Url;
   value: string;
 }
-
-export type FhirResourceType =
-  | "Encounter"
-  | "Appointment"
-  | "Patient"
-  | "Location"
-  | "Organization"
-  | (string & {});
