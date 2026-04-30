@@ -10,6 +10,7 @@ import type { SourceRecord } from "./types";
 export function organization(source: SourceRecord) {
   return {
     resourceType: "Organization",
+    id: source.id,
     identifier: [
       {
         system: "http://hl7.org/fhir/sid/us-npi",
@@ -17,6 +18,45 @@ export function organization(source: SourceRecord) {
       },
     ],
     name: source.name,
+  };
+}
+
+export function endpoint(source: SourceRecord) {
+  return {
+    resourceType: "Endpoint",
+    id: `${source.id}-fhir`,
+    status: "active",
+    connectionType: {
+      system: "http://terminology.hl7.org/CodeSystem/endpoint-connection-type",
+      code: "hl7-fhir-rest",
+    },
+    managingOrganization: {
+      reference: `Organization/${source.id}`,
+      display: source.name,
+    },
+    address: source.endpoint,
+  };
+}
+
+export function dataHolderDiscoveryParameters(patientId: string, activityHandle?: string) {
+  return {
+    resourceType: "Parameters",
+    parameter: [
+      {
+        name: "patient",
+        valueReference: {
+          reference: `Patient/${patientId}`,
+        },
+      },
+      ...(activityHandle
+        ? [
+            {
+              name: "activity-handle",
+              valueString: activityHandle,
+            },
+          ]
+        : []),
+    ],
   };
 }
 

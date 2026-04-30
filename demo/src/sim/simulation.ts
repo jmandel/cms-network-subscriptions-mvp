@@ -13,6 +13,8 @@ import {
 import {
   createNetworkSubscription,
   createSourceSubscription,
+  dataHolderDiscoveryParameters,
+  endpoint,
   networkActivityBundle,
   organization,
   patientDataFeedBundle,
@@ -35,6 +37,15 @@ function json(request: SimRequest, status: number, body: unknown): SimResponse {
     requestId: request.id,
     status,
     headers: { "content-type": "application/json" },
+    body,
+  };
+}
+
+function fhirJson(request: SimRequest, status: number, body: unknown): SimResponse {
+  return {
+    requestId: request.id,
+    status,
+    headers: { "content-type": "application/fhir+json" },
     body,
   };
 }
@@ -352,12 +363,12 @@ export class NetworkActivitySimulation {
           from: "client",
           to: "rls",
           method: "POST",
-          path: "/network/rls/search",
-          headers: { "content-type": "application/json" },
-          body: {
-            patient: signal.patient.id,
-            "activity-handle": signal.activityHandle?.value,
+          path: "/network/fhir/$data-holder-discovery",
+          headers: {
+            authorization: `Bearer ${this.state.app.networkToken}`,
+            "content-type": "application/fhir+json",
           },
+          body: dataHolderDiscoveryParameters(signal.patient.id, signal.activityHandle?.value),
           correlationId: signal.activityId,
           summary: "Run network discovery/RLS",
         });
@@ -662,8 +673,8 @@ export class NetworkActivitySimulation {
     this.kernel.register({
       actor: "rls",
       method: "POST",
-      pathPattern: "/network/rls/search",
-      handle: (request, context) => json(request, 200, this.resolveSources(request.body, context.state, "RLS")),
+      pathPattern: "/network/fhir/$data-holder-discovery",
+      handle: (request, context) => fhirJson(request, 200, this.resolveSources(request.body, context.state)),
     });
 
     this.kernel.register({
@@ -927,9 +938,16 @@ export class NetworkActivitySimulation {
   }
 
   private learnSourcesFromResponse(response: SimResponse, discoveredBy: string) {
-    const body = response.body as { dataHolders?: Array<{ id: string }> };
+    const body = response.body as { entry?: Array<{ resource?: any }> };
     const learned: SourceRecord[] = [];
-    for (const result of body.dataHolders ?? []) {
+    const endpointMatches =
+      body.entry
+        ?.map((entry) => entry.resource)
+        .filter((resource) => resource?.resourceType === "Endpoint")
+        .map((resource) => Object.values(this.state.sources).find((source) => source.endpoint === resource.address))
+        .filter((source): source is SourceRecord => Boolean(source))
+        .map((source) => ({ id: source.id })) ?? [];
+    for (const result of endpointMatches) {
       const source = this.state.sources[result.id];
       if (source) {
         this.learnSource(source, discoveredBy);
@@ -978,7 +996,7 @@ export class NetworkActivitySimulation {
     return undefined;
   }
 
-  private resolveSources(body: unknown, state: SimulationState, mode: "RLS") {
+  private resolveSources(body: unknown, state: SimulationState) {
     const handle = extractHandle(body);
     const mapping = handle ? state.network.handles[handle] : undefined;
     const candidates = mapping
@@ -990,16 +1008,37 @@ export class NetworkActivitySimulation {
       }
       return false;
     });
+    const entries = visible.flatMap((source) => [
+      {
+        fullUrl: `https://network.example.org/fhir/Organization/${source.id}`,
+        resource: organization(source),
+        search: { mode: "match" },
+      },
+      {
+        fullUrl: `https://network.example.org/fhir/Endpoint/${source.id}-fhir`,
+        resource: endpoint(source),
+        search: { mode: "include" },
+      },
+    ]);
     return {
-      mode,
-      fanOut: mapping ? 1 : Object.values(state.sources).length,
-      handleUsed: Boolean(mapping),
-      dataHolders: visible.map((source) => ({
-        id: source.id,
-        dataHolderOrganization: organization(source),
-        dataHolderEndpoint: source.endpoint,
-      })),
-      withheld: candidates.length - visible.length,
+      resourceType: "Bundle",
+      type: "searchset",
+      total: visible.length,
+      entry: entries,
+      extension: [
+        {
+          url: "https://example.org/fhir/StructureDefinition/demo-fan-out",
+          valueInteger: mapping ? 1 : Object.values(state.sources).length,
+        },
+        {
+          url: "https://example.org/fhir/StructureDefinition/demo-handle-used",
+          valueBoolean: Boolean(mapping),
+        },
+        {
+          url: "https://example.org/fhir/StructureDefinition/demo-withheld-count",
+          valueInteger: candidates.length - visible.length,
+        },
+      ],
     };
   }
 

@@ -48,7 +48,7 @@ self-access authorization and IAL2 identity facts could be conveyed.
 | `POST /network/token` | Mock network token response with network-scoped patient context. |
 | `POST /network/fhir/Subscription` | Create the network activity subscription. |
 | `POST /app/network-activity` | Client webhook receiver for network activity. |
-| `POST /network/rls/search` | Existing-style discovery/RLS query. |
+| `POST /network/fhir/$data-holder-discovery` | FHIR-style discovery operation. The request is a `Parameters` resource with network-scoped `patient` and optional `activity-handle`; the response is a searchset `Bundle` of `Organization` and `Endpoint` resources. |
 | `POST /data-holders/:id/token` | Mock data-holder token response with endpoint-scoped patient context. |
 | `GET /data-holders/:id/fhir/metadata` | Discover data-holder FHIR capabilities. |
 | `GET /data-holders/:id/fhir/Encounter` | Query Encounters by endpoint-scoped patient id and `_lastUpdated`. |
@@ -61,12 +61,12 @@ self-access authorization and IAL2 identity facts could be conveyed.
 | Scenario | What to look for |
 |---|---|
 | Bootstrap | Network token exchange, network activity `Subscription` create, and active app state. |
-| Opaque Activity | Webhook contains no data-holder details; the client calls RLS with `activity-handle`. |
+| Opaque Activity | Webhook contains no data-holder details; the client calls FHIR-style discovery with `activity-handle`, narrowing the result to the data holder tied to that handle. |
 | Endpoint Hint | Webhook names a data-holder endpoint; the client authorizes there, checks `/metadata`, and creates a Patient Data Feed subscription. |
 | Known Data Holder | Webhook names a known data-holder endpoint; the client skips RLS and runs an ordinary Encounter search there. |
 | Activity Tags | Webhook includes activity-type tags; the client uses recognized tags to choose ordinary data-holder follow-up. |
 | Patient Data Feed | Data-holder endpoint sends an id-only Encounter notification; the client reads the referenced Encounter. |
-| Missed Event | A dropped webhook creates an event-number gap; the client falls back to discovery and connected data-holder queries. |
+| Missed Event | A dropped webhook creates an event-number gap; the client falls back to broad discovery, which returns multiple visible data holders, then runs connected data-holder queries. |
 | Sensitive Policy | A sensitive data holder forces an opaque signal and RLS withholds the data-holder detail. |
 
 ## UI Shape

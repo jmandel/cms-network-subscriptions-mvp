@@ -941,13 +941,24 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
       ["channel", body.channel?.endpoint ?? "none"],
     ];
   }
-  if (body.dataHolders) {
+  if (
+    body.resourceType === "Bundle" &&
+    body.type === "searchset" &&
+    body.entry?.some?.((entry: any) => ["Organization", "Endpoint"].includes(entry.resource?.resourceType))
+  ) {
+    const dataHolders =
+      body.entry
+        ?.map((entry: any) => entry.resource)
+        .filter((resource: any) => resource?.resourceType === "Organization")
+        .map((resource: any) => resource.name ?? resource.id)
+        .join(", ") || "none";
     return [
-      ["mode", body.mode ?? "discovery"],
-      ["fan out", String(body.fanOut ?? "unknown")],
-      ["handle used", body.handleUsed ? "yes" : "no"],
-      ["data holders", body.dataHolders.map((source: any) => source.dataHolderOrganization?.name ?? source.id).join(", ") || "none"],
-      ["withheld", String(body.withheld ?? 0)],
+      ["bundle", "FHIR discovery searchset"],
+      ["matches", String(body.total ?? body.entry?.length ?? 0)],
+      ["fan out", String(extensionValue(body, "demo-fan-out") ?? "unknown")],
+      ["handle used", extensionValue(body, "demo-handle-used") ? "yes" : "no"],
+      ["data holders", dataHolders],
+      ["withheld", String(extensionValue(body, "demo-withheld-count") ?? 0)],
     ];
   }
   if (body.resourceType === "Bundle") {
@@ -972,6 +983,11 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
     return [["error", body.error]];
   }
   return [];
+}
+
+function extensionValue(resource: any, suffix: string) {
+  const extension = resource.extension?.find?.((item: any) => String(item.url ?? "").endsWith(suffix));
+  return extension?.valueInteger ?? extension?.valueBoolean ?? extension?.valueString;
 }
 
 function compactRecord(value: Record<string, string | string[]> | undefined) {

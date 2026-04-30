@@ -65,6 +65,17 @@ test("opaque scenario uses an activity handle to narrow RLS", () => {
   expect(webhookPayload).not.toContain("2234567890");
   expect(sim.state.app.knownSources.mercy?.discoveredBy).toBe("RLS");
   expect(sim.state.trace.some((event) => event.summary === "Run network discovery/RLS")).toBe(true);
+  const discovery = sim.state.trace.find(
+    (event) => event.request?.path === "/network/fhir/$data-holder-discovery" && event.response?.status === 200,
+  );
+  expect(discovery?.response?.headers["content-type"]).toBe("application/fhir+json");
+  expect(discovery?.request?.body).toMatchObject({
+    resourceType: "Parameters",
+    parameter: expect.arrayContaining([{ name: "activity-handle", valueString: handle }]),
+  });
+  expect(dataHolderNames(discovery?.response?.body)).toEqual(["Mercy Hospital Phoenix"]);
+  expect((discovery?.response?.body as any)?.total).toBe(1);
+  expect(extensionValue(discovery?.response?.body, "demo-handle-used")).toBe(true);
 });
 
 test("activity-tags scenario uses ordinary data-holder follow-up", () => {
@@ -113,6 +124,12 @@ test("missed webhook triggers discovery and connected data-holder recovery", () 
   expect(sim.state.trace.some((event) => event.summary.includes("Detected network event gap"))).toBe(true);
   expect(sim.state.trace.some((event) => event.summary === "Retrieve missed activity event range")).toBe(false);
   expect(sim.state.trace.some((event) => event.request?.path.endsWith("/$events"))).toBe(false);
+  const discovery = sim.state.trace.find(
+    (event) => event.request?.path === "/network/fhir/$data-holder-discovery" && event.response?.status === 200,
+  );
+  expect(dataHolderNames(discovery?.response?.body).sort()).toEqual(["Mercy Hospital Phoenix", "Valley Clinic"]);
+  expect((discovery?.response?.body as any)?.total).toBe(2);
+  expect(extensionValue(discovery?.response?.body, "demo-handle-used")).toBe(false);
   expect(sim.state.trace.some((event) => event.summary === "Recovery query at Valley Clinic")).toBe(true);
   expect(sim.state.trace.some((event) => event.summary === "Recovery query at Mercy Hospital Phoenix")).toBe(true);
   expect(sim.state.app.lastNetworkEventNumber).toBe(2);
@@ -122,10 +139,10 @@ test("sensitive data-holder stays withheld after opaque signal", () => {
   const sim = new NetworkActivitySimulation();
   sim.runScenario("sensitive-data-holder");
   const rlsResponse = sim.state.trace.find(
-    (event) => event.request?.path === "/network/rls/search" && event.response?.status === 200,
+    (event) => event.request?.path === "/network/fhir/$data-holder-discovery" && event.response?.status === 200,
   );
   expect(JSON.stringify(rlsResponse?.response?.body)).not.toContain("Northside Behavioral Health");
-  expect((rlsResponse?.response?.body as any)?.withheld).toBe(1);
+  expect(extensionValue(rlsResponse?.response?.body, "demo-withheld-count")).toBe(1);
   expect(sim.state.app.knownSources.northside).toBeUndefined();
 });
 
@@ -173,3 +190,17 @@ test("network subscription read returns the requested id", () => {
   });
   expect(response.body.id).toBe("network-sub-1");
 });
+
+function dataHolderNames(body: unknown) {
+  return (
+    (body as any)?.entry
+      ?.map((entry: any) => entry.resource)
+      .filter((resource: any) => resource?.resourceType === "Organization")
+      .map((resource: any) => resource.name) ?? []
+  );
+}
+
+function extensionValue(body: unknown, suffix: string) {
+  const extension = (body as any)?.extension?.find?.((item: any) => String(item.url ?? "").endsWith(suffix));
+  return extension?.valueInteger ?? extension?.valueBoolean ?? extension?.valueString;
+}
