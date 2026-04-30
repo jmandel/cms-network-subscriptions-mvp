@@ -2,6 +2,8 @@
 
 Draft proposal for a minimal network-level activity notification capability.
 
+Live simulator: <https://joshuamandel.com/cms-network-subscriptions-mvp/>
+
 This branch is intentionally standalone. It explores a small control-plane MVP:
 
 - Networks notify authorized clients that patient-relevant activity may exist.
