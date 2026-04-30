@@ -108,10 +108,12 @@ Routing rules:
 Responsibilities:
 
 - Authorize at the network.
+- In token requests, show an OAuth token-exchange style body with a placeholder SMART Permission Ticket. The placeholder is not validated, but it demonstrates where an issuer-signed ticket could carry patient self-access authorization and IAL2-verified subject identity facts.
 - Create the `network-activity` subscription.
 - Receive `full-resource` webhook notifications containing the NetworkActivitySignal `Parameters` focus resource.
 - Decode the inline `Parameters` focus resource into the logical TypeScript model.
 - Follow the most specific usable hint: `follow-up-read`, then `follow-up-search`, then `follow-up-discovery`, then ordinary RLS/discovery.
+- Avoid RLS/discovery when the signal already gives enough information to query, read, inspect, or subscribe at a data-holder endpoint.
 - Use FHIR `/metadata` at disclosed data-holder endpoints to discover Patient Data Feed support.
 - Track known data holders and Patient Data Feed subscriptions.
 - Detect duplicate activity ids and event-number gaps.
@@ -127,19 +129,19 @@ Routes:
 
 Responsibilities:
 
-- Issue mock network tokens with network-scoped patient context.
+- Issue mock network tokens with network-scoped patient context. The simulator accepts a decoded placeholder Permission Ticket-style request for readability.
 - Accept `Subscription` creates for the `network-activity` topic.
 - Convert high-level simulated events into activity signals.
 - Deliver full-resource notification bundles for network activity.
 - Apply disclosure policy: opaque, organization-hinted, endpoint-hinted, search-hinted, or read-hinted.
-- Emit explicit follow-up hints such as `follow-up-read`, `follow-up-search`, and `follow-up-discovery` when disclosure policy permits.
+- Emit explicit follow-up hints such as `follow-up-read`, `follow-up-search`, and `follow-up-discovery` when disclosure policy permits. The simulator only emits `follow-up-discovery` when the network cannot disclose enough for a direct data-holder endpoint interaction.
 - Mint opaque activity handles.
 
 Routes:
 
 | Route | Meaning |
 |-------|---------|
-| `POST /network/token` | Mock token response with `patient`. |
+| `POST /network/token` | Mock token response with `patient`; request body is shown as decoded OAuth token exchange fields with a placeholder Permission Ticket. |
 | `POST /network/fhir/Subscription` | Create network activity subscription. |
 | `GET /network/fhir/Subscription/:id` | Read subscription status. |
 | `POST /network/internal/events` | Simulation-only event injection. |
@@ -162,7 +164,7 @@ Routes:
 
 Responsibilities:
 
-- Issue mock data-holder tokens with data-holder-specific patient context.
+- Issue mock data-holder tokens with data-holder-specific patient context. The simulator uses the same placeholder Permission Ticket-style request shape at each data holder.
 - Respond to explicit follow-up search templates for `Encounter` and `Appointment`.
 - Accept Patient Data Feed subscriptions when the endpoint supports the topic.
 - Deliver id-only notifications for active Patient Data Feed subscriptions.
@@ -172,7 +174,7 @@ Routes:
 
 | Route | Meaning |
 |-------|---------|
-| `POST /data-holders/:dataHolderId/token` | Mock data-holder token response. |
+| `POST /data-holders/:dataHolderId/token` | Mock data-holder token response; request body is shown as decoded OAuth token exchange fields with a placeholder Permission Ticket. |
 | `GET /data-holders/:dataHolderId/fhir/metadata` | Discover whether the endpoint supports Patient Data Feed subscriptions. |
 | `GET /data-holders/:dataHolderId/fhir/Encounter?patient=:patient&_lastUpdated=ge...` | Query Encounters using the explicit hinted search URL. |
 | `GET /data-holders/:dataHolderId/fhir/Encounter/:id` | Read one Encounter by id. |
@@ -192,7 +194,7 @@ Shows the client authorizing at the network and creating a `network-activity` su
 
 Traffic:
 
-1. `POST /network/token`
+1. `POST /network/token` with a placeholder Permission Ticket-style `subject_token`
 2. `POST /network/fhir/Subscription`
 3. Subscription status update in app state
 
@@ -215,14 +217,14 @@ The network can disclose a data-holder FHIR endpoint. The client skips broad RLS
 Traffic:
 
 1. Full-resource webhook with `data-holder-endpoint`
-2. `POST /data-holders/:dataHolderId/token`
+2. `POST /data-holders/:dataHolderId/token` with a placeholder Permission Ticket-style `subject_token`
 3. `GET /data-holders/:dataHolderId/fhir/metadata`
 4. `POST /data-holders/:dataHolderId/fhir/Subscription`
 5. App state shows Patient Data Feed subscription active
 
 ### 4. Known Data Holder Activity
 
-The network identifies a data holder. The client follows the search hint and runs a narrow query instead of rediscovery.
+The network identifies a known data holder and supplies a narrow search hint. The client follows the search hint instead of rediscovery, because rediscovery is reserved for opaque signals or signals that are likely to reveal a data holder the app does not already know.
 
 Traffic:
 
@@ -237,7 +239,7 @@ The network can disclose a data-holder FHIR endpoint and specific Encounter read
 Traffic:
 
 1. Full-resource webhook with `follow-up-read`
-2. `POST /data-holders/:dataHolderId/token`
+2. `POST /data-holders/:dataHolderId/token` with a placeholder Permission Ticket-style `subject_token`
 3. `GET /data-holders/:dataHolderId/fhir/Encounter/:id`
 
 ### 6. Patient Data Feed Event

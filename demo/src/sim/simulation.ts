@@ -64,6 +64,74 @@ function opaqueToken(prefix: string, eventNumber: number) {
   return `${prefix}-${mixed.toString(36).padStart(7, "0")}`;
 }
 
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const PERMISSION_TICKET_TOKEN_TYPE = "https://smarthealthit.org/token-type/permission-ticket";
+const CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+const PATIENT_SELF_ACCESS_TICKET_TYPE = "https://smarthealthit.org/permission-ticket-type/patient-self-access-v1";
+
+function permissionTicketTokenRequest({
+  audience,
+  scope,
+  label,
+  permissions,
+  dataHolder,
+}: {
+  audience: string;
+  scope: string;
+  label: string;
+  permissions: Array<{ resource_type: string; interactions: string[] }>;
+  dataHolder?: SourceRecord;
+}) {
+  return {
+    grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+    subject_token_type: PERMISSION_TICKET_TOKEN_TYPE,
+    subject_token: `permission-ticket.jwt.placeholder.${label}`,
+    scope,
+    client_assertion_type: CLIENT_ASSERTION_TYPE,
+    client_assertion: "client-auth.jwt.placeholder.health-app",
+    _demo_note: "The simulator shows decoded form fields. A real request would carry an issuer-signed Permission Ticket JWT in subject_token.",
+    _demo_decoded_permission_ticket: {
+      iss: "https://issuer.example.org",
+      aud: audience,
+      ticket_type: PATIENT_SELF_ACCESS_TICKET_TYPE,
+      presenter_binding: {
+        method: "trust_framework_client",
+        trust_framework: "cms-aligned-network-demo",
+        entity_uri: "https://health-app.example.org",
+      },
+      subject: {
+        patient: {
+          resourceType: "Patient",
+          name: [{ family: "Example", given: ["Jamie"] }],
+          birthDate: "1980-01-01",
+          identifier: [
+            {
+              system: "urn:demo:ial2-identity-proofing-session",
+              value: "ial2-verified-subject-123",
+            },
+          ],
+        },
+      },
+      access: {
+        permissions: permissions.map((permission) => ({
+          kind: "data",
+          ...permission,
+        })),
+        ...(dataHolder
+          ? {
+              data_holder_filter: [
+                {
+                  kind: "organization",
+                  organization: organization(dataHolder),
+                },
+              ],
+            }
+          : {}),
+      },
+    },
+  };
+}
+
 type ActivityHintLevel =
   | "discovery-hinted"
   | "organization-hinted"
@@ -135,8 +203,13 @@ export class NetworkActivitySimulation {
       to: "network",
       method: "POST",
       path: "/network/token",
-      headers: { "content-type": "application/json" },
-      body: { client_id: "health-app", patient: PATIENT_ID },
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: permissionTicketTokenRequest({
+        audience: "https://network.example.org",
+        scope: "system/Subscription.crud",
+        label: "network-activity",
+        permissions: [{ resource_type: "Subscription", interactions: ["create", "read", "delete"] }],
+      }),
       summary: "Authorize at network",
     });
     const tokenBody = token.body as { access_token: string; patient: string };
@@ -621,7 +694,7 @@ export class NetworkActivitySimulation {
           access_token: `data-holder-token-${source.id}`,
           token_type: "bearer",
           expires_in: 3600,
-          scope: "patient/Encounter.r patient/Appointment.r system/Subscription.crud",
+          scope: "patient/Encounter.rs patient/Appointment.rs system/Subscription.crud",
           patient: source.patientId,
         });
       },
@@ -799,9 +872,11 @@ export class NetworkActivitySimulation {
         value: handle,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
-      followUpDiscovery: "ordinary-network-discovery",
     };
 
+    if (hintLevel === "discovery-hinted" || hintLevel === "organization-hinted") {
+      signal.followUpDiscovery = "ordinary-network-discovery";
+    }
     if (hintLevel !== "discovery-hinted") {
       signal.dataHolderOrganization = { identifiers: organization(source).identifier, name: source.name };
     }
@@ -868,8 +943,18 @@ export class NetworkActivitySimulation {
       to: "data-holder",
       method: "POST",
       path: `/data-holders/${source.id}/token`,
-      headers: { "content-type": "application/json" },
-      body: { client_id: "health-app", source: source.id },
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: permissionTicketTokenRequest({
+        audience: source.endpoint,
+        scope: "patient/Encounter.rs patient/Appointment.rs system/Subscription.crud",
+        label: `data-holder-${source.id}`,
+        permissions: [
+          { resource_type: "Encounter", interactions: ["read", "search"] },
+          { resource_type: "Appointment", interactions: ["read", "search"] },
+          { resource_type: "Subscription", interactions: ["create", "read", "delete"] },
+        ],
+        dataHolder: source,
+      }),
       summary: `Authorize at ${source.name}`,
     });
     const body = response.body as { access_token: string; patient: string };

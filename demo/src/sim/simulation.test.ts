@@ -6,16 +6,28 @@ test("bootstrap creates a network subscription", () => {
   sim.bootstrap();
   expect(sim.state.app.networkSubscriptionId).toBe("network-sub-1");
   expect(sim.state.trace.some((event) => event.summary.includes("Create network activity subscription"))).toBe(true);
+  const tokenRequest = sim.state.trace.find((event) => event.summary === "Authorize at network")?.request;
+  expect(tokenRequest?.headers["content-type"]).toBe("application/x-www-form-urlencoded");
+  expect((tokenRequest?.body as any)?.grant_type).toBe("urn:ietf:params:oauth:grant-type:token-exchange");
+  expect((tokenRequest?.body as any)?.subject_token_type).toBe("https://smarthealthit.org/token-type/permission-ticket");
+  expect(JSON.stringify((tokenRequest?.body as any)?._demo_decoded_permission_ticket)).toContain("ial2-verified-subject-123");
 });
 
 test("endpoint-hinted scenario discovers capabilities and creates Patient Data Feed subscription", () => {
   const sim = new NetworkActivitySimulation();
   sim.runScenario("endpoint-hinted");
+  const webhook = sim.state.trace.find(
+    (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
+  );
+  expect(JSON.stringify(webhook?.request?.body)).not.toContain("follow-up-discovery");
   expect(
     sim.state.trace.some(
       (event) => event.request?.method === "GET" && event.request.path === "/data-holders/valley/fhir/metadata",
     ),
   ).toBe(true);
+  const dataHolderTokenRequest = sim.state.trace.find((event) => event.summary === "Authorize at Valley Clinic")?.request;
+  expect((dataHolderTokenRequest?.body as any)?.subject_token_type).toBe("https://smarthealthit.org/token-type/permission-ticket");
+  expect(JSON.stringify((dataHolderTokenRequest?.body as any)?._demo_decoded_permission_ticket)).toContain("Valley Clinic");
   expect(sim.state.app.feedSubscriptions.valley?.status).toBe("active");
   expect(sim.state.app.sourceTokens.valley?.patient).toBe("data-holder-patient-valley");
 });
@@ -72,7 +84,9 @@ test("search scenario runs the explicit follow-up search template", () => {
   const webhookPayload = JSON.stringify(webhook?.request?.body);
   expect(webhookPayload).toContain("follow-up-search");
   expect(webhookPayload).toContain("https://valley-clinic.example.org/fhir/Encounter?patient={{patient}}");
+  expect(webhookPayload).not.toContain("follow-up-discovery");
   expect(webhookPayload).not.toContain("{{activity-handle}}");
+  expect(sim.state.trace.some((event) => event.summary === "Run network discovery/RLS")).toBe(false);
 
   const query = sim.state.trace.find(
     (event) => event.request?.method === "GET" && event.request.path === "/data-holders/valley/fhir/Encounter",
