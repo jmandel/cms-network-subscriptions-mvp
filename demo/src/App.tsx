@@ -295,11 +295,14 @@ export function App() {
               <SectionTitle icon={Send} label="Traffic" />
               <span className="counter">{trafficItems.length} rows / {state.trace.length} events</span>
             </div>
-            <TrafficList
-              items={trafficItems}
-              selectedTrafficId={selectedTraffic?.id}
-              onSelect={(id) => setSelectedTrafficId(id)}
-            />
+            <div className="traffic-workbench">
+              <TrafficList
+                items={trafficItems}
+                selectedTrafficId={selectedTraffic?.id}
+                onSelect={(id) => setSelectedTrafficId(id)}
+              />
+              <TrafficDetailPane item={selectedTraffic} />
+            </div>
           </section>
         </section>
 
@@ -373,24 +376,33 @@ function TrafficList({
             </span>
             <span className="trace-status">{trafficItemStatus(item)}</span>
           </button>
-          {item.id === selectedTrafficId ? <TrafficInlineDetail item={item} /> : null}
         </div>
       ))}
     </div>
   );
 }
 
-function TrafficInlineDetail({ item }: { item: TrafficItem }) {
+function TrafficDetailPane({ item }: { item?: TrafficItem }) {
+  if (!item) {
+    return (
+      <section className="traffic-detail-panel">
+        <div className="empty-state compact">Select a traffic row to inspect the request and response.</div>
+      </section>
+    );
+  }
+
   if (item.kind === "event") {
     return (
-      <div className="traffic-detail">
+      <section className="traffic-detail-panel">
+        <DetailPanelHeader item={item} />
         <TraceEventCard title="Event" event={item.event} />
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="traffic-detail">
+    <section className="traffic-detail-panel">
+      <DetailPanelHeader item={item} />
       <div className="traffic-detail-grid">
         <HttpCard
           title="Request"
@@ -415,6 +427,19 @@ function TrafficInlineDetail({ item }: { item: TrafficItem }) {
           ))}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function DetailPanelHeader({ item }: { item: TrafficItem }) {
+  return (
+    <div className="traffic-detail-head">
+      <div>
+        <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
+        <strong>{trafficItemSummary(item)}</strong>
+        <small>{trafficItemSubhead(item)}</small>
+      </div>
+      <span>{trafficItemStatus(item)}</span>
     </div>
   );
 }
