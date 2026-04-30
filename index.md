@@ -123,6 +123,8 @@ Notifications use the FHIR R4B Subscriptions Backport shape:
 - each activity event points to a `Parameters` resource included in the same
   bundle;
 - the `Parameters` resource is the activity signal.
+- bundle-local `urn:uuid:` values use valid UUIDs, and each
+  `focus.reference` matches the `fullUrl` of the included `Parameters`.
 
 The `Parameters` resource is not clinical content. It is a small set of hints
 for follow-up.
@@ -194,7 +196,7 @@ The network can wake the client without naming the data holder.
   "timestamp": "2026-04-30T16:00:00Z",
   "entry": [
     {
-      "fullUrl": "urn:uuid:status-1",
+      "fullUrl": "urn:uuid:4f0b3c2e-7d6a-4c6b-9b2a-8f1e3d9a2b70",
       "request": { "method": "GET", "url": "Subscription/network-sub-1/$status" },
       "response": { "status": "200" },
       "resource": {
@@ -206,7 +208,10 @@ The network can wake the client without naming the data holder.
           {
             "eventNumber": 1,
             "timestamp": "2026-04-30T16:00:00Z",
-            "focus": { "reference": "urn:uuid:activity-1", "type": "Parameters" }
+            "focus": {
+              "reference": "urn:uuid:0a7f3c6d-8a24-4f5a-b9d2-13f7d3a6c91e",
+              "type": "Parameters"
+            }
           }
         ],
         "subscription": {
@@ -216,8 +221,11 @@ The network can wake the client without naming the data holder.
       }
     },
     {
-      "fullUrl": "urn:uuid:activity-1",
-      "request": { "method": "GET", "url": "urn:uuid:activity-1" },
+      "fullUrl": "urn:uuid:0a7f3c6d-8a24-4f5a-b9d2-13f7d3a6c91e",
+      "request": {
+        "method": "GET",
+        "url": "urn:uuid:0a7f3c6d-8a24-4f5a-b9d2-13f7d3a6c91e"
+      },
       "response": { "status": "200" },
       "resource": {
         "resourceType": "Parameters",
@@ -337,6 +345,7 @@ Network Activity Endpoints:
   history`.
 - SHALL include `SubscriptionStatus` as the first bundle entry.
 - SHALL include one `Parameters` activity signal per event focus.
+- SHALL use valid UUIDs in bundle-local `urn:uuid:` fullUrls.
 - SHALL include `activity-id`, `patient`, at least one `activity-type`, and
   `observed-at` in every activity signal.
 - SHALL treat `activity-id` and `activity-handle` as opaque client-facing values.

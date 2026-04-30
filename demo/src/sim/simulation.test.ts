@@ -21,6 +21,9 @@ test("endpoint-hinted scenario discovers capabilities and creates Patient Data F
   );
   const bundle = webhook?.request?.body as any;
   expect(bundle.type).toBe("history");
+  expect(bundle.entry?.[0]?.fullUrl).toMatch(/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(bundle.entry?.[1]?.fullUrl).toMatch(/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(bundle.entry?.[0]?.resource?.notificationEvent?.[0]?.focus?.reference).toBe(bundle.entry?.[1]?.fullUrl);
   expect(bundle.entry?.[0]?.request?.url).toBe("Subscription/network-sub-1/$status");
   expect(JSON.stringify(bundle)).not.toContain("follow-up-discovery");
   expect(

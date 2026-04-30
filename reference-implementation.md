@@ -17,7 +17,7 @@ bun run dev
 - A client authorizes at a Network Activity Endpoint and creates one
   network-level subscription.
 - The network sends full-resource R4B Backport notification bundles with a
-  `Parameters` activity signal.
+  `Parameters` activity signal and valid bundle-local `urn:uuid:` references.
 - Activity signals carry repeatable `activity-type` codings, optional
   confidence, an opaque activity handle, and optional data-holder hints.
 - The client treats each signal as a hint: it either runs network discovery/RLS

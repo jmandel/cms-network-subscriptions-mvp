@@ -135,13 +135,15 @@ export function networkActivityEventsBundle(
   content: "empty" | "full-resource" = "full-resource",
 ) {
   const latest = events[events.length - 1];
+  const statusFullUrl = uuidUrn();
+  const eventEntries = events.map((event) => ({ ...event, fullUrl: uuidUrn() }));
   return {
     resourceType: "Bundle",
     type: "history",
     timestamp: latest?.signal.observedAt ?? new Date().toISOString(),
     entry: [
       {
-        fullUrl: "urn:uuid:status-1",
+        fullUrl: statusFullUrl,
         request: { method: "GET", url: `Subscription/${subscriptionId}/$status` },
         response: { status: "200" },
         resource: {
@@ -149,11 +151,11 @@ export function networkActivityEventsBundle(
           status: "active",
           type: "event-notification",
           eventsSinceSubscriptionStart: latest?.eventNumber ?? 0,
-          notificationEvent: events.map(({ signal, eventNumber }) => ({
+          notificationEvent: eventEntries.map(({ signal, eventNumber, fullUrl }) => ({
             eventNumber,
             timestamp: signal.observedAt,
             ...(content === "full-resource"
-              ? { focus: { reference: `urn:uuid:activity-${eventNumber}`, type: "Parameters" } }
+              ? { focus: { reference: fullUrl, type: "Parameters" } }
               : {}),
           })),
           subscription: { reference: `https://network.example.org/fhir/Subscription/${subscriptionId}` },
@@ -161,9 +163,9 @@ export function networkActivityEventsBundle(
         },
       },
       ...(content === "full-resource"
-        ? events.map(({ signal, eventNumber }) => ({
-            fullUrl: `urn:uuid:activity-${eventNumber}`,
-            request: { method: "GET", url: `urn:uuid:activity-${eventNumber}` },
+        ? eventEntries.map(({ signal, fullUrl }) => ({
+            fullUrl,
+            request: { method: "GET", url: fullUrl },
             response: { status: "200" },
             resource: activityParameters(signal),
           }))
@@ -179,7 +181,7 @@ export function patientDataFeedBundle(source: SourceRecord, eventNumber: number,
     timestamp: new Date().toISOString(),
     entry: [
       {
-        fullUrl: "urn:uuid:source-status-1",
+        fullUrl: uuidUrn(),
         resource: {
           resourceType: "SubscriptionStatus",
           status: "active",
@@ -201,6 +203,10 @@ export function patientDataFeedBundle(source: SourceRecord, eventNumber: number,
       },
     ],
   };
+}
+
+function uuidUrn() {
+  return `urn:uuid:${crypto.randomUUID()}`;
 }
 
 export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal | undefined {
