@@ -155,6 +155,11 @@ For example, a single event can be both `activity-detected` and `visit-related`.
 
 Suggested CMS codes:
 
+FHIR `Coding.system` for these codes:
+`https://cms.gov/fhir/CodeSystem/network-activity-type`
+
+Bare codes in this section refer to that code system.
+
 | Code | Meaning |
 |---|---|
 | `activity-detected` | Generic patient-relevant activity was observed. |
