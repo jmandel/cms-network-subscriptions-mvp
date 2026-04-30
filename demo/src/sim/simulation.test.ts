@@ -8,9 +8,9 @@ test("bootstrap creates a network subscription", () => {
   expect(sim.state.trace.some((event) => event.summary.includes("Create network activity subscription"))).toBe(true);
 });
 
-test("feed-hinted scenario creates source feed subscription", () => {
+test("subscription-hinted scenario creates Patient Data Feed subscription", () => {
   const sim = new NetworkActivitySimulation();
-  sim.runScenario("feed-hinted");
+  sim.runScenario("subscription-hinted");
   expect(sim.state.app.feedSubscriptions.valley?.status).toBe("active");
   expect(sim.state.app.sourceTokens.valley?.patient).toBe("source-patient-valley");
 });

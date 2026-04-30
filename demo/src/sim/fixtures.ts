@@ -18,7 +18,6 @@ export const sources: SourceFixture[] = [
     supportsQuery: true,
     supportsFeed: true,
     endpoint: "https://valley-clinic.example.org/fhir",
-    feedEndpoint: "https://valley-clinic.example.org/fhir",
     patientId: "source-patient-valley",
   },
   {
@@ -29,8 +28,7 @@ export const sources: SourceFixture[] = [
     sensitive: false,
     supportsQuery: true,
     supportsFeed: true,
-    endpoint: "https://mercy-phoenix.example.org/fhir",
-    feedEndpoint: "https://network.example.org/fhir/sources/mercy",
+    endpoint: "https://network.example.org/fhir/sources/mercy",
     patientId: "source-patient-mercy",
   },
   {
@@ -42,7 +40,6 @@ export const sources: SourceFixture[] = [
     supportsQuery: true,
     supportsFeed: false,
     endpoint: "https://northside-behavioral.example.org/fhir",
-    feedEndpoint: "https://northside-behavioral.example.org/fhir",
     patientId: "source-patient-northside",
   },
 ];
@@ -71,7 +68,7 @@ export function createInitialState(): SimulationState {
       decisions: [],
     },
     network: {
-      disclosurePolicy: "feed-endpoint",
+      disclosurePolicy: "feed-capable",
       eventCounter: 0,
       dropNextWebhook: false,
       handles: {},

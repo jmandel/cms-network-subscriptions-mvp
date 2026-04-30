@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="520" viewBox="0 0 1080 520" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="500" viewBox="0 0 1080 500" role="img" aria-labelledby="title desc">
   <title id="title">Network activity notification overview</title>
-  <desc id="desc">A client subscribes to a network activity endpoint, receives a notification, then follows hints to discovery, source query, or source feed subscription without overlapping paths.</desc>
+  <desc id="desc">A client subscribes to a network activity endpoint, receives a notification, then follows hints to discovery or to one data-holder FHIR endpoint where it can query, read, or create a Patient Data Feed subscription.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -13,54 +13,56 @@
       .tag-bg { fill: #ffffff; opacity: 0.94; }
       .line { stroke: #2b4a5f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
       .dash { stroke: #6d7f8b; stroke-width: 2; fill: none; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+      .divider { stroke: #d8e0e5; stroke-width: 1; }
     </style>
   </defs>
 
-  <rect x="60" y="210" width="180" height="90" class="box"/>
-  <text x="150" y="247" text-anchor="middle" class="label">Client app</text>
-  <text x="150" y="271" text-anchor="middle" class="small">authorized subscriber</text>
+  <rect width="1080" height="500" fill="#ffffff"/>
 
-  <rect x="410" y="85" width="220" height="95" class="soft"/>
-  <text x="520" y="123" text-anchor="middle" class="label">Network activity</text>
-  <text x="520" y="147" text-anchor="middle" class="small">control-plane topic</text>
+  <rect x="60" y="205" width="180" height="90" class="box"/>
+  <text x="150" y="242" text-anchor="middle" class="label">Client app</text>
+  <text x="150" y="266" text-anchor="middle" class="small">authorized subscriber</text>
 
-  <rect x="410" y="335" width="220" height="95" class="box"/>
-  <text x="520" y="373" text-anchor="middle" class="label">RLS or network query</text>
-  <text x="520" y="397" text-anchor="middle" class="small">may accept opaque handle</text>
+  <rect x="405" y="80" width="230" height="95" class="soft"/>
+  <text x="520" y="118" text-anchor="middle" class="label">Network activity</text>
+  <text x="520" y="142" text-anchor="middle" class="small">control-plane topic</text>
 
-  <rect x="790" y="85" width="220" height="90" class="box"/>
-  <text x="900" y="122" text-anchor="middle" class="label">Source FHIR endpoint</text>
-  <text x="900" y="146" text-anchor="middle" class="small">query or read</text>
+  <rect x="405" y="325" width="230" height="95" class="box"/>
+  <text x="520" y="363" text-anchor="middle" class="label">RLS or network query</text>
+  <text x="520" y="387" text-anchor="middle" class="small">may accept opaque handle</text>
 
-  <rect x="790" y="335" width="220" height="100" class="box"/>
-  <text x="900" y="373" text-anchor="middle" class="label">Source feed endpoint</text>
-  <text x="900" y="397" text-anchor="middle" class="small">US Core Patient Data Feed</text>
+  <rect x="785" y="145" width="235" height="185" class="box"/>
+  <text x="902" y="183" text-anchor="middle" class="label">Data-holder FHIR server</text>
+  <text x="902" y="207" text-anchor="middle" class="small">represents a source organization</text>
+  <line x1="805" y1="230" x2="1000" y2="230" class="divider"/>
+  <text x="902" y="260" text-anchor="middle" class="small">query or read once</text>
+  <text x="902" y="284" text-anchor="middle" class="small">poll if needed</text>
+  <text x="902" y="308" text-anchor="middle" class="small">create Patient Data Feed subscription</text>
 
-  <!-- Middle control-plane exchange. These solid paths use separate upper and lower lanes. -->
-  <path d="M240 235 C315 220 330 132 410 132" class="line"/>
-  <rect x="280" y="187" width="92" height="22" class="tag-bg"/>
-  <text x="290" y="203" class="small">1. subscribe</text>
+  <!-- Network activity subscription and notification. -->
+  <path d="M240 230 C315 210 330 128 405 128" class="line"/>
+  <rect x="278" y="183" width="92" height="22" class="tag-bg"/>
+  <text x="288" y="199" class="small">1. subscribe</text>
 
-  <path d="M410 158 C330 170 315 265 240 270" class="line"/>
-  <rect x="276" y="286" width="152" height="22" class="tag-bg"/>
-  <text x="285" y="302" class="small">2. activity notification</text>
+  <path d="M405 153 C330 165 315 260 240 265" class="line"/>
+  <rect x="276" y="281" width="152" height="22" class="tag-bg"/>
+  <text x="285" y="297" class="small">2. activity notification</text>
 
-  <!-- Fallback discovery or network query stays in the lower middle lane. -->
-  <path d="M240 286 C305 330 340 383 410 383" class="dash"/>
-  <rect x="256" y="338" width="205" height="24" class="tag-bg"/>
-  <text x="265" y="355" class="small">3a. rediscover or query network</text>
+  <!-- Opaque fallback through discovery or network query. -->
+  <path d="M240 282 C305 325 340 373 405 373" class="dash"/>
+  <rect x="256" y="333" width="205" height="24" class="tag-bg"/>
+  <text x="265" y="350" class="small">3a. rediscover or query network</text>
 
-  <path d="M630 383 H790" class="dash"/>
-  <rect x="652" y="392" width="116" height="22" class="tag-bg"/>
-  <text x="660" y="410" class="small">narrowed result</text>
+  <path d="M635 373 C700 373 715 260 785 260" class="dash"/>
+  <rect x="666" y="339" width="142" height="22" class="tag-bg"/>
+  <text x="674" y="356" class="small">source hint or result</text>
 
-  <!-- Direct source query uses the top lane and never passes through the network box. -->
-  <path d="M150 210 V35 H900 V85" class="dash"/>
+  <!-- Direct source follow-up uses one data-holder FHIR server. -->
+  <path d="M150 205 V35 H902 V145" class="dash"/>
   <rect x="430" y="11" width="248" height="22" class="tag-bg"/>
   <text x="438" y="28" class="small">3b. query source or read target URL</text>
 
-  <!-- Source feed subscription uses the bottom lane, separate from RLS results. -->
-  <path d="M150 300 V485 H900 V435" class="dash"/>
-  <rect x="408" y="490" width="202" height="22" class="tag-bg"/>
-  <text x="417" y="507" class="small">3c. subscribe to source feed</text>
+  <path d="M150 295 V465 H902 V330" class="dash"/>
+  <rect x="390" y="470" width="280" height="22" class="tag-bg"/>
+  <text x="398" y="487" class="small">3c. create Patient Data Feed subscription</text>
 </svg>

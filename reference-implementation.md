@@ -37,7 +37,7 @@ Primary regions:
 | Region | Purpose |
 |--------|---------|
 | Scenario controls | Choose patient, network policy, source capabilities, and trigger high-level events. |
-| Actor map | Show Client App, Network Activity Endpoint, RLS/Network Query Service, Source Endpoint, and Source Feed Endpoint. |
+| Actor map | Show Client App, Network Activity Endpoint, RLS/Network Query Service, and Data-Holder FHIR Endpoint. |
 | Traffic log | Chronological HTTP-like requests, webhook deliveries, responses, and internal events. |
 | Message inspector | Pretty and raw views for selected FHIR bundles, Parameters, requests, and responses. |
 | App state | Known sources, source subscriptions, token contexts, last event number, and pending follow-up work. |
@@ -111,8 +111,8 @@ Responsibilities:
 - Create the `network-activity` subscription.
 - Receive webhook notifications.
 - Decode the `Parameters` focus resource into the logical TypeScript model.
-- Follow the most specific usable hint: `target-url`, then source feed subscription, then explicit `source-query`, then RLS/discovery.
-- Track known sources and source feed subscriptions.
+- Follow the most specific usable hint: `target-url`, then explicit `source-query`, then Patient Data Feed subscription, then RLS/discovery.
+- Track known sources and Patient Data Feed subscriptions.
 - Detect duplicate activity ids and event-number gaps.
 
 Routes:
@@ -120,7 +120,7 @@ Routes:
 | Route | Meaning |
 |-------|---------|
 | `POST /app/network-activity` | Receive network activity webhook. |
-| `POST /app/source-feed/:sourceId` | Receive source-level Patient Data Feed webhook. |
+| `POST /app/patient-data-feed/:sourceId` | Receive Patient Data Feed webhook from a data-holder FHIR endpoint. |
 
 ### Network Activity Endpoint
 
@@ -129,7 +129,7 @@ Responsibilities:
 - Issue mock network tokens with network-scoped patient context.
 - Accept `Subscription` creates for the `network-activity` topic.
 - Convert high-level simulated events into activity notification bundles.
-- Apply disclosure policy: opaque, source-hinted, query-hinted, resource-hinted, or feed-hinted.
+- Apply disclosure policy: opaque, source-hinted, query-hinted, resource-hinted, or subscription-hinted.
 - Emit explicit follow-up hints such as `source-query`, `target-url`, and `feed-topic` when disclosure policy permits.
 - Mint and retain opaque activity handles.
 
@@ -158,12 +158,14 @@ Routes:
 | `POST /network/rls/search` | Existing-style discovery query. |
 | `POST /network/fhir/$resolve-activity` | FHIR-shaped narrowed resolution. |
 
-### Source Endpoint
+### Data-Holder FHIR Endpoint
 
 Responsibilities:
 
 - Issue mock source tokens with source-scoped patient context.
 - Respond to explicit source query templates for `Encounter` and `Appointment`.
+- Accept Patient Data Feed subscriptions when the endpoint supports the topic.
+- Deliver id-only notifications for active Patient Data Feed subscriptions.
 - Enforce source authorization independently of network notifications.
 
 Routes:
@@ -175,21 +177,8 @@ Routes:
 | `GET /sources/:sourceId/fhir/Encounter/:id` | Read one Encounter by id. |
 | `GET /sources/:sourceId/fhir/Appointment` | Query Appointments by patient and `_lastUpdated`. |
 | `GET /sources/:sourceId/fhir/Appointment/:id` | Read one Appointment by id. |
-
-### Source Feed Endpoint
-
-Responsibilities:
-
-- Accept Patient Data Feed subscriptions.
-- Deliver source-level id-only notifications.
-- Support catch-up search in the simulation.
-
-Routes:
-
-| Route | Meaning |
-|-------|---------|
-| `POST /sources/:sourceId/fhir/Subscription` | Create source feed subscription. |
-| `GET /sources/:sourceId/fhir/Subscription/:id` | Read source feed subscription. |
+| `POST /sources/:sourceId/fhir/Subscription` | Create Patient Data Feed subscription. |
+| `GET /sources/:sourceId/fhir/Subscription/:id` | Read Patient Data Feed subscription. |
 | `POST /sources/:sourceId/internal/events` | Simulation-only source event injection. |
 
 ## Scenarios
@@ -218,13 +207,13 @@ Traffic:
 4. `POST /network/rls/search` with `activity-handle`
 5. RLS response with narrowed source list
 
-### 3. Feed-Hinted New Source
+### 3. Subscription-Hinted New Source
 
-The network can disclose a source feed endpoint. The client skips broad RLS, authorizes at the source, and creates a Patient Data Feed subscription.
+The network can disclose a data-holder FHIR endpoint that supports the Patient Data Feed topic. The client skips broad RLS, authorizes at that endpoint, and creates a Patient Data Feed subscription there.
 
 Traffic:
 
-1. Webhook with `feed-hinted` notification
+1. Webhook with a `source-endpoint` and `feed-topic` notification
 2. `POST /sources/:sourceId/token`
 3. `POST /sources/:sourceId/fhir/Subscription`
 4. App state shows source subscription active
@@ -241,7 +230,7 @@ Traffic:
 
 ### 5. Specific Resource Hint
 
-The network can disclose a source endpoint and specific Encounter read URL. The client authorizes at the source and reads that resource directly.
+The network can disclose a data-holder FHIR endpoint and specific Encounter read URL. The client authorizes at the source and reads that resource directly.
 
 Traffic:
 
@@ -249,14 +238,14 @@ Traffic:
 2. `POST /sources/:sourceId/token`
 3. `GET /sources/:sourceId/fhir/Encounter/:id`
 
-### 6. Source Feed Event
+### 6. Patient Data Feed Event
 
-A source-level Patient Data Feed subscription delivers an id-only notification. The client reads the resource from the source endpoint.
+A Patient Data Feed subscription at the data-holder FHIR endpoint delivers an id-only notification. The client reads the resource from the same endpoint.
 
 Traffic:
 
 1. Simulation source event injection
-2. Webhook `POST /app/source-feed/:sourceId`
+2. Webhook `POST /app/patient-data-feed/:sourceId`
 3. `GET /sources/:sourceId/fhir/Encounter/:id`
 
 ### 7. Missed Network Activity
@@ -287,13 +276,13 @@ Minimum fixture set:
 - One patient with network id `network-patient-123`.
 - Three sources:
   - Valley Clinic: general outpatient, supports source query and Patient Data Feed.
-  - Mercy Hospital Phoenix: hospital, feed endpoint hosted by network.
+  - Mercy Hospital Phoenix: hospital, data-holder FHIR endpoint hosted by network on the source's behalf.
   - Northside Behavioral Health: sensitive source, source details withheld by default.
 - Four network disclosure policies:
   - Opaque only.
   - Source organization allowed.
-- Source endpoint allowed.
-- Feed endpoint allowed.
+  - Source endpoint allowed.
+  - Source endpoint plus Patient Data Feed topic allowed.
 
 ## UI Interactions
 
@@ -318,7 +307,7 @@ Inspectors:
 ## Acceptance Criteria
 
 1. A user can run the bootstrap flow and see every internal HTTP-like message.
-2. A user can trigger opaque, source-hinted, query-hinted, and feed-hinted activity notifications.
+2. A user can trigger opaque, source-hinted, query-hinted, resource-hinted, and subscription-hinted activity notifications.
 3. The traffic log shows webhook delivery and all follow-up requests with method, path, query, headers, body, status, and response body.
 4. The app state shows known sources, source subscriptions, last event number, and deduplicated activity ids.
 5. Opaque handles are visible as opaque strings and can be traced through follow-up calls.
@@ -334,5 +323,5 @@ Inspectors:
 4. Implement actors without UI and test the scenarios as scripts.
 5. Build the traffic log and message inspector.
 6. Build scenario controls and state panels.
-7. Add source-feed flows and missed-message recovery.
+7. Add Patient Data Feed flows and missed-message recovery.
 8. Add Playwright smoke tests for desktop and mobile layout.

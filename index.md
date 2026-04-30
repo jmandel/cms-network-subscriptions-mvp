@@ -8,23 +8,23 @@
 
 This proposal defines a small, network-level notification capability: a CMS-Aligned Network can tell an authorized client that patient-relevant activity may exist, and can optionally include hints about how the client should follow up.
 
-The activity notification is a control-plane signal. It is not an encounter notification, an appointment notification, or a clinical payload. It helps a client decide whether to run discovery, query a network service, query a source, or subscribe to a source-level feed.
+The activity notification is a control-plane signal. It is not an encounter notification, an appointment notification, or a clinical payload. It helps a client decide whether to run discovery, query a network service, query a data-holder FHIR endpoint, or create a Patient Data Feed subscription at that same endpoint.
 
 This gives the ecosystem two complementary MVPs:
 
 | MVP | Where it lives | What it does |
 |-----|----------------|--------------|
 | Network-level activity notifications | CMS-Aligned Network | Tells a client that something relevant may have changed, with optional source and action hints |
-| Source-level Patient Data Feed subscriptions | EHR, provider endpoint, or provider-hosted network endpoint | Delivers encounter and appointment notifications using the US Core Patient Data Feed topic |
+| Patient Data Feed subscriptions | Data-holder FHIR endpoint, whether provider-operated or network-hosted for that provider | Delivers encounter and appointment notifications using the US Core Patient Data Feed topic |
 
-Together, these reduce blind polling. The network can say "look here" or "run a narrowed follow-up," and the source endpoint can deliver detailed encounter and appointment events.
+Together, these reduce blind polling. The network can say "look here" or "run a narrowed follow-up," and the data-holder FHIR endpoint can deliver detailed encounter and appointment events.
 
 ![Network activity notification overview](images/activity-overview.svg)
 
 ## 2. Design Principles
 
 1. **No clinical content in the network signal.** The notification does not contain inline Encounter, Appointment, diagnosis, reason-for-visit, or other clinical resources.
-2. **Progressive disclosure.** A conformant notification can be fully opaque. A network may add organization, endpoint, explicit source-query, target-url, or feed hints when policy and available data allow.
+2. **Progressive disclosure.** A conformant notification can be fully opaque. A network may add organization, endpoint, explicit source-query, target-url, or Patient Data Feed capability hints when policy and available data allow.
 3. **Hints, not commands.** The notification carries facts and follow-up hints. The client follows the most specific usable hint it supports and falls back to discovery.
 4. **Opaque handles enable narrowed follow-up.** The network can include an opaque `activity-handle` that the client passes unchanged into follow-up calls. Downstream services can use the handle to narrow processing without revealing why.
 5. **No app-specific source memory required at the network.** The network can identify a source when it can. The client decides whether that source is new, known, already subscribed, or irrelevant.
@@ -38,9 +38,9 @@ Together, these reduce blind polling. The network can say "look here" or "run a 
 A network may learn about patient-relevant activity from many operational signals, including:
 
 - A participant sends an ADT, scheduling, or other event feed to the network.
-- A participant's broker or gateway receives a source-level Patient Data Feed event.
+- A participant's broker or gateway receives a data-holder Patient Data Feed event.
 - A record locator or discovery result changes for a patient.
-- A participant publishes a new FHIR endpoint or feed capability.
+- A participant publishes a new FHIR endpoint or Patient Data Feed capability.
 - A peer network reports that a patient-relevant source exists.
 - A permitted administrative workflow indicates that a source may now have data.
 
@@ -55,8 +55,7 @@ Activity notifications are allowed to be conservative. A signal can mean "the ne
 | **Client** | Application that wants patient-relevant activity signals. The initial audience is patient-facing Individual Access Services apps, but the model is not limited to them. |
 | **Network Activity Endpoint** | FHIR endpoint operated by a CMS-Aligned Network. The client subscribes here for activity notifications. |
 | **Discovery/RLS Service** | Existing network service that helps the client find relevant sources. This may be FHIR, XCPD/RLS, directory-based, or another network-defined flow. |
-| **Source Endpoint** | FHIR endpoint where the client can query or read clinical resources, subject to source authorization. |
-| **Source Feed Endpoint** | FHIR endpoint that supports the US Core Patient Data Feed topic for encounter and appointment notifications. This may be operated by the provider or hosted by the network on the provider's behalf. |
+| **Data-Holder FHIR Endpoint** | FHIR endpoint representing a source organization. The client may query or read resources there, and when the endpoint supports FHIR Subscriptions it may create a US Core Patient Data Feed subscription there. This may be operated by the provider or hosted by the network on the provider's behalf. |
 
 ## 5. Topic
 
@@ -172,9 +171,8 @@ export interface NetworkActivitySignal {
 | `activity-handle` | 0..1 | `valueString` | Opaque handle the client may pass into follow-up actions. |
 | `activity-handle-expires` | 0..1 | `valueInstant` | Optional expiration for the handle. |
 | `source-organization` | 0..1 | `resource` | Minimal FHIR `Organization` identifying the source, usually by NPI, CCN, or network identifier. |
-| `source-endpoint` | 0..1 | `valueUrl` | FHIR base URL where source query or read may occur. |
-| `feed-endpoint` | 0..1 | `valueUrl` | FHIR base URL supporting source-level Patient Data Feed subscriptions. |
-| `feed-topic` | 0..1 | `valueUrl` | SubscriptionTopic URL the client should use at the feed endpoint, usually US Core Patient Data Feed. |
+| `source-endpoint` | 0..1 | `valueUrl` | Data-holder FHIR base URL where source query, read, or subscription creation may occur. |
+| `feed-topic` | 0..1 | `valueUrl` | SubscriptionTopic URL the client may use at `source-endpoint`, usually US Core Patient Data Feed. Presence of this field means the same FHIR endpoint is advertising a subscription follow-up path. |
 | `target-resource` | 0..1 | `valueReference` | Specific resource reference at the hinted source, such as `Encounter/123`. |
 | `target-url` | 0..1 | `valueUrl` | Absolute FHIR read URL for the target resource. Preferred when a specific read is intended. |
 | `source-query` | 0..* | `valueString` | Explicit FHIR search URL template the client may run after source authorization. It may be absolute or relative to `source-endpoint`. |
@@ -190,7 +188,7 @@ export interface NetworkActivitySignal {
 | `care-relationship-detected` | The network believes a source may now hold data for the patient. The client decides whether the source is new. |
 | `source-activity-detected` | The network believes an identified source has new or changed patient-relevant activity. |
 | `source-resource-detected` | The network can point to a specific source resource for targeted follow-up. |
-| `feed-available` | A relevant source feed endpoint may be available. |
+| `feed-available` | A relevant data-holder FHIR endpoint may support Patient Data Feed subscriptions. |
 | `capability-changed` | A source or network capability changed in a way that may affect follow-up. |
 
 Networks may define additional codes by agreement, but clients should not need custom codes for the base workflow.
@@ -212,8 +210,8 @@ The notification does not tell the client what to do. It provides hints. A clien
 Recommended client order:
 
 1. If `target-url` is present, authorize at that source and read the URL. If only `target-resource` and `source-endpoint` are present, authorize at the source and construct the read URL from those fields.
-2. Else if `feed-endpoint` is present, authorize at that endpoint and create or refresh a Patient Data Feed subscription. If `feed-topic` is present, use that topic.
-3. Else if `source-query` and `source-endpoint` are present, authorize at the source, substitute the source-scoped `{patient}` value into the query template, and run that query.
+2. Else if `source-query` and `source-endpoint` are present, authorize at the source, substitute the source-scoped `{patient}` value into the query template, and run that query.
+3. Else if `source-endpoint` and `feed-topic` are present, authorize at `source-endpoint` and create or refresh a Patient Data Feed subscription using that topic.
 4. Else run the network's existing discovery/RLS flow, passing `activity-handle` when present.
 5. If the client cannot use a hint, it falls back to rediscovery.
 
@@ -236,7 +234,7 @@ Authorization: Bearer {source_access_token}
 
 The template MAY be relative to `source-endpoint`, for example `Encounter?patient={patient}&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`. If a template contains `{activity-handle}`, the client substitutes the opaque handle unchanged except for URL encoding. Receiving services are free to ignore unsupported handle parameters.
 
-The source-level subscription topic is the US Core Patient Data Feed topic:
+The subscription topic advertised by a data-holder FHIR endpoint is the US Core Patient Data Feed topic:
 
 ```text
 http://hl7.org/fhir/us/core/SubscriptionTopic/patient-data-feed
@@ -317,9 +315,9 @@ The network discloses no source detail. The app should rediscover or query the n
 }
 ```
 
-### 9.2 Source And Feed Hinted Notification
+### 9.2 FHIR Endpoint With Feed Topic Notification
 
-The network can disclose an organization and a source feed endpoint. The client may skip broad RLS and create a Patient Data Feed subscription at the feed endpoint.
+The network can disclose an organization and a data-holder FHIR endpoint that supports Patient Data Feed subscriptions. The client may skip broad RLS and create a Patient Data Feed subscription at that endpoint.
 
 ```json
 {
@@ -345,7 +343,7 @@ The network can disclose an organization and a source feed endpoint. The client 
       }
     },
     {
-      "name": "feed-endpoint",
+      "name": "source-endpoint",
       "valueUrl": "https://valley-clinic.example.org/fhir"
     },
     {
@@ -459,29 +457,29 @@ A network may:
 - Send an opaque notification that causes the client to run its existing RLS workflow.
 - Include an `activity-handle` so the RLS workflow can be narrowed.
 - Include `source-organization` so the client can decide whether it already knows the source.
-- Include `source-query`, `target-url`, or `feed-endpoint` so the client can skip broad discovery and run a concrete follow-up.
+- Include `source-query`, `target-url`, or `feed-topic` with `source-endpoint` so the client can skip broad discovery and run a concrete follow-up.
 
 This makes the same topic useful across networks with different policy and technical capabilities. A network that cannot disclose source detail can still send useful signals. A network that can disclose more can reduce client work and avoid unnecessary fan-out.
 
 ## 11. Relationship To Patient Data Feed
 
-The source-level data plane should use the US Core Patient Data Feed topic:
+The data-holder FHIR endpoint data plane should use the US Core Patient Data Feed topic:
 
 ```text
 http://hl7.org/fhir/us/core/SubscriptionTopic/patient-data-feed
 ```
 
-Activity notifications help the client decide where to establish or refresh those source-level subscriptions.
+Activity notifications help the client decide where to establish or refresh those data-holder endpoint subscriptions.
 
 For example:
 
 1. The client subscribes to `network-activity` at the network.
-2. The network sends a `feed-hinted` activity notification with a source feed endpoint.
+2. The network sends an activity notification with both `source-endpoint` and `feed-topic`.
 3. The client authorizes at that endpoint.
 4. The client creates a Patient Data Feed subscription there.
-5. Encounter and appointment notifications flow directly from the source feed endpoint.
+5. Encounter and appointment notifications flow directly from that data-holder FHIR endpoint.
 
-The network-level activity signal stays out of the clinical data path. The source endpoint remains responsible for source authorization, source-scoped patient identity, and clinical data access.
+The network-level activity signal stays out of the clinical data path. The data-holder FHIR endpoint remains responsible for source authorization, source-scoped patient identity, clinical data access, and any Patient Data Feed subscription it accepts.
 
 ## 12. Delivery And Catch-Up
 
@@ -506,7 +504,7 @@ Minimum assumptions:
 - Even an opaque activity notification may reveal sensitive information because it says something happened.
 - Optional source hints may reveal more, especially if the organization or endpoint implies a sensitive service.
 - A hint is not authorization to retrieve clinical data.
-- Source endpoints enforce their own authorization and access control before returning clinical resources or accepting Patient Data Feed subscriptions.
+- Data-holder FHIR endpoints enforce their own authorization and access control before returning clinical resources or accepting Patient Data Feed subscriptions.
 - An `activity-handle` may narrow routing or processing, but it must not bypass authorization.
 
 Networks should choose the least detailed notification that still gives the client a useful follow-up path.
@@ -523,7 +521,7 @@ Networks should choose the least detailed notification that still gives the clie
 - SHALL NOT include source-scoped patient identifiers in the activity notification.
 - SHALL generate `activity-id` and `activity-handle` as non-semantic values that do not encode source, patient, organization, endpoint, or resource information.
 - SHOULD include an `activity-handle` when follow-up services can use it to reduce fan-out.
-- MAY include source, endpoint, source-query, target-url, target-resource, feed-topic, resource-type, time-window, and feed hints.
+- MAY include source, endpoint, source-query, target-url, target-resource, feed-topic, resource-type, time-window, and Patient Data Feed capability hints.
 
 ### Client
 
@@ -532,11 +530,11 @@ Networks should choose the least detailed notification that still gives the clie
 - SHALL be idempotent for duplicate notifications.
 - SHOULD detect event gaps using `eventNumber`.
 - SHOULD follow the most specific usable hint and fall back to rediscovery.
-- SHOULD use source-level Patient Data Feed subscriptions when a source feed endpoint is available and authorized.
+- SHOULD use Patient Data Feed subscriptions when the data-holder FHIR endpoint supports them and the client is authorized.
 
-### Source Feed Endpoint
+### Data-Holder FHIR Endpoint
 
-- If offered as a source feed endpoint, SHALL support the US Core Patient Data Feed topic for Encounter.
+- If accepting Patient Data Feed subscriptions, SHALL support the US Core Patient Data Feed topic for Encounter.
 - MAY support Appointment when available, and SHALL document whether Appointment is supported.
 - SHALL enforce source authorization independently of the network activity notification.
 
@@ -549,7 +547,7 @@ Networks should choose the least detailed notification that still gives the clie
 - How networks internally observe activity.
 - Whether a source is new to a particular client.
 - Guaranteed delivery of every network-observed activity.
-- Detailed Patient Data Feed conformance, except as a referenced source-level capability.
+- Detailed Patient Data Feed conformance, except as a referenced data-holder endpoint capability.
 
 ## 16. Open Questions
 

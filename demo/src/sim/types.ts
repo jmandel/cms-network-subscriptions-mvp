@@ -7,8 +7,7 @@ export type ActorId =
   | "client"
   | "network"
   | "rls"
-  | "source"
-  | "source-feed";
+  | "source";
 
 export type TraceKind =
   | "request"
@@ -79,15 +78,15 @@ export type DisclosurePolicy =
   | "opaque"
   | "source-org"
   | "source-endpoint"
-  | "feed-endpoint";
+  | "feed-capable";
 
 export type ScenarioId =
   | "bootstrap"
   | "opaque-rls"
-  | "feed-hinted"
+  | "subscription-hinted"
   | "known-source"
   | "resource-hinted"
-  | "source-feed"
+  | "patient-data-feed"
   | "missed-activity"
   | "sensitive-source";
 
@@ -100,7 +99,6 @@ export interface SourceFixture {
   supportsQuery: boolean;
   supportsFeed: boolean;
   endpoint: string;
-  feedEndpoint: string;
   patientId: string;
 }
 
@@ -112,7 +110,6 @@ export interface KnownSource {
   id: string;
   name: string;
   endpoint?: string;
-  feedEndpoint?: string;
   discoveredBy: string;
 }
 

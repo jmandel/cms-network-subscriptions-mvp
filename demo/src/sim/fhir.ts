@@ -64,7 +64,7 @@ export function createSourceSubscription(source: SourceRecord, patientId: string
     },
     channel: {
       type: "rest-hook",
-      endpoint: `/app/source-feed/${source.id}`,
+      endpoint: `/app/patient-data-feed/${source.id}`,
       payload: "application/fhir+json",
       _payload: {
         extension: [
@@ -107,9 +107,6 @@ export function activityParameters(signal: NetworkActivitySignal) {
   }
   if (signal.source?.sourceEndpoint) {
     params.push({ name: "source-endpoint", valueUrl: signal.source.sourceEndpoint });
-  }
-  if (signal.source?.feedEndpoint) {
-    params.push({ name: "feed-endpoint", valueUrl: signal.source.feedEndpoint });
   }
   if (signal.feedTopic) {
     params.push({ name: "feed-topic", valueUrl: signal.feedTopic });
@@ -178,7 +175,7 @@ export function networkActivityBundle(signal: NetworkActivitySignal, eventNumber
   };
 }
 
-export function sourceFeedBundle(source: SourceRecord, eventNumber: number, resourceType: string, resourceId: string) {
+export function patientDataFeedBundle(source: SourceRecord, eventNumber: number, resourceType: string, resourceId: string) {
   return {
     resourceType: "Bundle",
     type: "subscription-notification",
@@ -201,7 +198,7 @@ export function sourceFeedBundle(source: SourceRecord, eventNumber: number, reso
               },
             },
           ],
-          subscription: { reference: `${source.feedEndpoint}/Subscription/sub-${source.id}` },
+          subscription: { reference: `${source.endpoint}/Subscription/sub-${source.id}` },
           topic: PATIENT_DATA_FEED_TOPIC,
         },
       },
@@ -225,7 +222,6 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
   const first = (name: string) => values.get(name)?.[0];
   const sourceOrg = first("source-organization")?.resource;
   const sourceEndpoint = first("source-endpoint")?.valueUrl;
-  const feedEndpoint = first("feed-endpoint")?.valueUrl;
   const feedTopic = first("feed-topic")?.valueUrl;
   const targetResource = first("target-resource")?.valueReference;
   const targetUrl = first("target-url")?.valueUrl;
@@ -250,7 +246,7 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
         }
       : undefined,
     source:
-      sourceOrg || sourceEndpoint || feedEndpoint
+      sourceOrg || sourceEndpoint
         ? {
             organization: sourceOrg
               ? {
@@ -259,7 +255,6 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
                 }
               : undefined,
             sourceEndpoint,
-            feedEndpoint,
           }
         : undefined,
     targetResource: targetResource

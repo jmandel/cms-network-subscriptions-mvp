@@ -43,7 +43,6 @@ export interface OpaqueActivityHandle {
 export interface SourceHint {
   organization?: OrganizationHint;
   sourceEndpoint?: Url;
-  feedEndpoint?: Url;
 }
 
 export interface TargetResourceHint {

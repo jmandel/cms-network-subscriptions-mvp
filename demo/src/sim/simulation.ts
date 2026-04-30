@@ -10,8 +10,8 @@ import {
   createSourceSubscription,
   networkActivityBundle,
   organization,
+  patientDataFeedBundle,
   parseNetworkActivityBundle,
-  sourceFeedBundle,
 } from "./fhir";
 import { SimKernel } from "./kernel";
 import type {
@@ -47,13 +47,13 @@ function opaqueToken(prefix: string, eventNumber: number) {
   return `${prefix}-${mixed.toString(36).padStart(7, "0")}`;
 }
 
-type ActivityHintLevel = "opaque" | "source-hinted" | "query-hinted" | "resource-hinted" | "feed-hinted";
+type ActivityHintLevel = "opaque" | "source-hinted" | "query-hinted" | "resource-hinted" | "subscription-hinted";
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
 function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
   if (signal.targetResource) return "resource-hinted";
-  if (signal.source?.feedEndpoint) return "feed-hinted";
+  if (signal.feedTopic && signal.source?.sourceEndpoint) return "subscription-hinted";
   if (signal.sourceQueries?.length || signal.source?.sourceEndpoint) return "query-hinted";
   if (signal.source?.organization) return "source-hinted";
   return "opaque";
@@ -87,7 +87,7 @@ export class NetworkActivitySimulation {
     this.state.sources[sourceId].feedEnabled = enabled;
     this.kernel.trace({
       kind: "state-change",
-      actor: "source-feed",
+      actor: "source",
       summary: `${this.state.sources[sourceId].name} feed ${enabled ? "enabled" : "disabled"}`,
       details: { sourceId, enabled },
     });
@@ -151,8 +151,8 @@ export class NetworkActivitySimulation {
       this.processPendingActions();
     }
 
-    if (id === "feed-hinted") {
-      this.setDisclosurePolicy("feed-endpoint");
+    if (id === "subscription-hinted") {
+      this.setDisclosurePolicy("feed-capable");
       this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
       this.processPendingActions();
     }
@@ -169,14 +169,14 @@ export class NetworkActivitySimulation {
       this.injectNetworkEvent("mercy", "source-resource-detected", "confirmed", {
         reference: "Encounter/enc-mercy-1",
         type: "Encounter",
-        url: "https://mercy-phoenix.example.org/fhir/Encounter/enc-mercy-1",
+        url: "https://network.example.org/fhir/sources/mercy/Encounter/enc-mercy-1",
       });
       this.processPendingActions();
     }
 
-    if (id === "source-feed") {
+    if (id === "patient-data-feed") {
       if (!this.state.app.feedSubscriptions.valley) {
-        this.setDisclosurePolicy("feed-endpoint");
+        this.setDisclosurePolicy("feed-capable");
         this.injectNetworkEvent("valley", "feed-available", "confirmed");
         this.processPendingActions();
       }
@@ -194,7 +194,7 @@ export class NetworkActivitySimulation {
     }
 
     if (id === "sensitive-source") {
-      this.setDisclosurePolicy("feed-endpoint");
+      this.setDisclosurePolicy("feed-capable");
       this.injectNetworkEvent("northside", "activity-detected", "possible");
       this.processPendingActions();
     }
@@ -220,12 +220,12 @@ export class NetworkActivitySimulation {
   injectSourceEvent(sourceId: string, resourceType: "Encounter" | "Appointment", id: string) {
     this.kernel.send({
       from: "simulation",
-      to: "source-feed",
+      to: "source",
       method: "POST",
       path: `/sources/${sourceId}/internal/events`,
       headers: { "content-type": "application/json" },
       body: { resourceType, id },
-      summary: `Simulate source feed ${resourceType} at ${this.state.sources[sourceId].name}`,
+      summary: `Simulate Patient Data Feed ${resourceType} at ${this.state.sources[sourceId].name}`,
     });
   }
 
@@ -336,13 +336,13 @@ export class NetworkActivitySimulation {
       if (action.code === "subscribe-source") {
         const source = this.sourceFromSignal(signal);
         if (!source) {
-          this.traceDecision("No feed endpoint available for subscribe-source", { signal });
+          this.traceDecision("No data-holder FHIR endpoint available for subscribe-source", { signal });
           continue;
         }
         const token = this.ensureSourceToken(source);
         const response = this.kernel.send({
           from: "client",
-          to: "source-feed",
+          to: "source",
           method: "POST",
           path: `/sources/${source.id}/fhir/Subscription`,
           headers: {
@@ -358,10 +358,10 @@ export class NetworkActivitySimulation {
           id: body.id,
           sourceId: source.id,
           topic: PATIENT_DATA_FEED_TOPIC,
-          endpoint: source.feedEndpoint,
+          endpoint: source.endpoint,
           status: body.status,
         };
-        this.learnSource(source, "feed subscription");
+        this.learnSource(source, "Patient Data Feed subscription");
       }
     }
   }
@@ -607,7 +607,7 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source-feed",
+      actor: "source",
       method: "POST",
       pathPattern: "/sources/:sourceId/fhir/Subscription",
       handle: (request, context) => {
@@ -624,7 +624,7 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source-feed",
+      actor: "source",
       method: "GET",
       pathPattern: "/sources/:sourceId/fhir/Subscription/:id",
       handle: (request) =>
@@ -636,19 +636,19 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source-feed",
+      actor: "source",
       method: "POST",
       pathPattern: "/sources/:sourceId/internal/events",
       handle: (request, context) => {
         const source = context.state.sources[pathPart(request.path, 1)];
         const body = request.body as { resourceType: "Encounter" | "Appointment"; id: string };
         const eventNumber = Object.keys(context.state.app.feedSubscriptions).length + context.state.network.eventCounter + 1;
-        const bundle = sourceFeedBundle(source, eventNumber, body.resourceType, body.id);
+        const bundle = patientDataFeedBundle(source, eventNumber, body.resourceType, body.id);
         context.send({
-          from: "source-feed",
+          from: "source",
           to: "client",
           method: "POST",
-          path: `/app/source-feed/${source.id}`,
+          path: `/app/patient-data-feed/${source.id}`,
           headers: { "content-type": "application/fhir+json" },
           body: bundle,
           kind: "webhook",
@@ -662,7 +662,7 @@ export class NetworkActivitySimulation {
     this.kernel.register({
       actor: "client",
       method: "POST",
-      pathPattern: "/app/source-feed/:sourceId",
+      pathPattern: "/app/patient-data-feed/:sourceId",
       handle: (request, context) => {
         const sourceId = pathPart(request.path, 2);
         const status = (request.body as any)?.entry?.[0]?.resource;
@@ -715,20 +715,16 @@ export class NetworkActivitySimulation {
     if (hintLevel !== "opaque") {
       signal.source = { organization: { identifiers: organization(source).identifier, name: source.name } };
     }
-    if (hintLevel === "query-hinted" || hintLevel === "resource-hinted" || hintLevel === "feed-hinted") {
+    if (hintLevel === "query-hinted" || hintLevel === "resource-hinted" || hintLevel === "subscription-hinted") {
       signal.source = { ...(signal.source ?? {}), sourceEndpoint: source.endpoint };
     }
-    if (hintLevel === "feed-hinted") {
-      signal.source = { ...(signal.source ?? {}), feedEndpoint: source.feedEndpoint };
-    }
-
     if (hintLevel === "resource-hinted" && requestedTarget) {
       signal.targetResource = {
         ...requestedTarget,
         url: requestedTarget.url ?? targetUrlFor(source, requestedTarget),
       };
       signal.resourceTypes = requestedTarget.type ? [requestedTarget.type] : undefined;
-    } else if (hintLevel === "feed-hinted") {
+    } else if (hintLevel === "subscription-hinted") {
       signal.feedTopic = PATIENT_DATA_FEED_TOPIC;
       signal.resourceTypes = ["Encounter", "Appointment"];
     } else if (hintLevel === "query-hinted") {
@@ -761,7 +757,7 @@ export class NetworkActivitySimulation {
     if (policy === "source-endpoint" || !source.feedEnabled) {
       return "query-hinted";
     }
-    return "feed-hinted";
+    return "subscription-hinted";
   }
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
@@ -771,11 +767,11 @@ export class NetworkActivitySimulation {
         return { code: "read-source", ...target, url: signal.targetResource.url };
       }
     }
-    if (signal.source?.feedEndpoint) {
-      return { code: "subscribe-source" };
-    }
     if (signal.source?.sourceEndpoint && signal.sourceQueries?.[0]?.urlTemplate) {
       return { code: "query-source", sourceQuery: signal.sourceQueries[0].urlTemplate };
+    }
+    if (signal.feedTopic && signal.source?.sourceEndpoint) {
+      return { code: "subscribe-source" };
     }
     if (signal.source?.organization && signal.handle) {
       return { code: "query-network" };
@@ -808,7 +804,6 @@ export class NetworkActivitySimulation {
       id: source.id,
       name: source.name,
       endpoint: source.endpoint,
-      feedEndpoint: source.feedEndpoint,
       discoveredBy,
     };
   }
@@ -824,11 +819,10 @@ export class NetworkActivitySimulation {
   }
 
   private sourceFromSignal(signal: NetworkActivitySignal) {
-    const endpoint = signal.source?.feedEndpoint ?? signal.source?.sourceEndpoint;
+    const endpoint = signal.source?.sourceEndpoint;
     const source = Object.values(this.state.sources).find(
       (candidate) =>
         candidate.endpoint === endpoint ||
-        candidate.feedEndpoint === endpoint ||
         candidate.name === signal.source?.organization?.name ||
         candidate.npi === signal.source?.organization?.identifiers?.[0]?.value,
     );
@@ -858,7 +852,7 @@ export class NetworkActivitySimulation {
         id: source.id,
         organization: organization(source),
         sourceEndpoint: source.endpoint,
-        feedEndpoint: source.feedEnabled ? source.feedEndpoint : undefined,
+        feedTopic: source.feedEnabled ? PATIENT_DATA_FEED_TOPIC : undefined,
       })),
       withheld: candidates.length - visible.length,
     };

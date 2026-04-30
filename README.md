@@ -8,7 +8,7 @@ This branch is intentionally standalone. It explores a small control-plane MVP:
 
 - Networks notify authorized clients that patient-relevant activity may exist.
 - Notifications may be fully opaque or may include optional source and action hints.
-- Clinical detail is discovered and retrieved through follow-up paths such as RLS, network query, source query, or source-level US Core Patient Data Feed subscriptions.
+- Clinical detail is discovered and retrieved through follow-up paths such as RLS, network query, source query, or Patient Data Feed subscriptions at data-holder FHIR endpoints.
 
 Start with [index.md](index.md).
 

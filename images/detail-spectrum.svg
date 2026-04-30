@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="290" viewBox="0 0 980 290" role="img" aria-labelledby="title desc">
   <title id="title">Network activity detail spectrum</title>
-  <desc id="desc">Notifications can range from opaque signals to source hints, explicit query hints, target URL hints, and feed endpoint hints.</desc>
+  <desc id="desc">Notifications can range from opaque signals to source hints, explicit query hints, target URL hints, and Patient Data Feed topic hints.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -13,6 +13,8 @@
       .line { stroke: #2b4a5f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
+
+  <rect width="980" height="290" fill="#ffffff"/>
 
   <text x="70" y="45" class="small">less disclosure</text>
   <path d="M170 41 H810" class="line"/>
@@ -43,8 +45,8 @@
   <text x="722" y="194" text-anchor="middle" class="small">read one resource</text>
 
   <rect x="825" y="85" width="155" height="135" class="panel"/>
-  <text x="902" y="120" text-anchor="middle" class="label">Feed hinted</text>
-  <text x="902" y="150" text-anchor="middle" class="small">feed endpoint</text>
-  <text x="902" y="172" text-anchor="middle" class="small">feed topic</text>
+  <text x="902" y="120" text-anchor="middle" class="label">Feed topic</text>
+  <text x="902" y="150" text-anchor="middle" class="small">FHIR endpoint</text>
+  <text x="902" y="172" text-anchor="middle" class="small">topic URL</text>
   <text x="902" y="194" text-anchor="middle" class="small">subscribe</text>
 </svg>
