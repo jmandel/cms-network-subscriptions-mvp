@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: "demo",
+  base: process.env.BASE_PATH ?? "/",
   plugins: [react()],
   resolve: {
     dedupe: ["react", "react-dom"],

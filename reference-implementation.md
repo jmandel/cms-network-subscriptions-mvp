@@ -4,7 +4,7 @@
 
 Build a browser-based simulation dashboard that lets users explore Network Activity Notifications end to end.
 
-The app should let a user trigger high-level events, watch the app receive activity notifications, inspect the suggested actions, and see the internal HTTP-like traffic the app performs next. No real HTTP requests are sent. All requests are routed through an in-memory simulation framework that preserves HTTP semantics: method, path, query parameters, headers, body, status, and response body.
+The app should let a user trigger high-level events, watch the app receive activity notifications, inspect the disclosed hints, and see the internal HTTP-like traffic the app performs next. No real HTTP requests are sent. All requests are routed through an in-memory simulation framework that preserves HTTP semantics: method, path, query parameters, headers, body, status, and response body.
 
 ## Non-Goals
 
@@ -40,7 +40,7 @@ Primary regions:
 | Actor map | Show Client App, Network Activity Endpoint, RLS/Network Query Service, Source Endpoint, and Source Feed Endpoint. |
 | Traffic log | Chronological HTTP-like requests, webhook deliveries, responses, and internal events. |
 | Message inspector | Pretty and raw views for selected FHIR bundles, Parameters, requests, and responses. |
-| App state | Known sources, source subscriptions, token contexts, last event number, and pending suggested actions. |
+| App state | Known sources, source subscriptions, token contexts, last event number, and pending follow-up work. |
 | Network state | Watched patients, retained activity handles, source registry, disclosure policy, and event counters. |
 
 The UI should be quiet and dense: tables, segmented controls, tabs, and inspectors. Avoid marketing copy. The user should learn by running flows and inspecting messages.
@@ -111,7 +111,7 @@ Responsibilities:
 - Create the `network-activity` subscription.
 - Receive webhook notifications.
 - Decode the `Parameters` focus resource into the logical TypeScript model.
-- Choose suggested actions based on app policy and current app state.
+- Follow the most specific usable hint: `target-url`, then source feed subscription, then explicit `source-query`, then RLS/discovery.
 - Track known sources and source feed subscriptions.
 - Detect duplicate activity ids and event-number gaps.
 
@@ -129,7 +129,8 @@ Responsibilities:
 - Issue mock network tokens with network-scoped patient context.
 - Accept `Subscription` creates for the `network-activity` topic.
 - Convert high-level simulated events into activity notification bundles.
-- Apply disclosure policy: opaque, source-hinted, query-hinted, or feed-hinted.
+- Apply disclosure policy: opaque, source-hinted, query-hinted, resource-hinted, or feed-hinted.
+- Emit explicit follow-up hints such as `source-query`, `target-url`, and `feed-topic` when disclosure policy permits.
 - Mint and retain opaque activity handles.
 
 Routes:
@@ -162,7 +163,7 @@ Routes:
 Responsibilities:
 
 - Issue mock source tokens with source-scoped patient context.
-- Respond to simple source queries for `Encounter` and `Appointment`.
+- Respond to explicit source query templates for `Encounter` and `Appointment`.
 - Enforce source authorization independently of network notifications.
 
 Routes:
@@ -170,7 +171,7 @@ Routes:
 | Route | Meaning |
 |-------|---------|
 | `POST /sources/:sourceId/token` | Mock source token response. |
-| `GET /sources/:sourceId/fhir/Encounter` | Query Encounters by patient and `_lastUpdated`. |
+| `GET /sources/:sourceId/fhir/Encounter?patient={patient}&_lastUpdated=ge...` | Query Encounters using the explicit hinted search URL. |
 | `GET /sources/:sourceId/fhir/Encounter/:id` | Read one Encounter by id. |
 | `GET /sources/:sourceId/fhir/Appointment` | Query Appointments by patient and `_lastUpdated`. |
 | `GET /sources/:sourceId/fhir/Appointment/:id` | Read one Appointment by id. |
@@ -213,7 +214,7 @@ Traffic:
 
 1. Simulation event injection
 2. Webhook `POST /app/network-activity`
-3. App decision: take `rediscover`
+3. App decision: no source hint, run rediscovery
 4. `POST /network/rls/search` with `activity-handle`
 5. RLS response with narrowed source list
 
@@ -230,15 +231,25 @@ Traffic:
 
 ### 4. Known Source Activity
 
-The network identifies a source the app already knows. The client chooses `query-source` instead of rediscovery.
+The network identifies a source. The client follows the source hint and runs a narrow query instead of rediscovery.
 
 Traffic:
 
 1. Webhook with `source-activity-detected`
-2. App decision: known source, take `query-source`
-3. `GET /sources/:sourceId/fhir/Encounter?patient=...&_lastUpdated=...`
+2. App decision: `source-query` is the most specific usable hint
+3. `GET /sources/:sourceId/fhir/Encounter?patient=source-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`
 
-### 5. Source Feed Event
+### 5. Specific Resource Hint
+
+The network can disclose a source endpoint and specific Encounter read URL. The client authorizes at the source and reads that resource directly.
+
+Traffic:
+
+1. Webhook with `target-resource` and `target-url`
+2. `POST /sources/:sourceId/token`
+3. `GET /sources/:sourceId/fhir/Encounter/:id`
+
+### 6. Source Feed Event
 
 A source-level Patient Data Feed subscription delivers an id-only notification. The client reads the resource from the source endpoint.
 
@@ -248,7 +259,7 @@ Traffic:
 2. Webhook `POST /app/source-feed/:sourceId`
 3. `GET /sources/:sourceId/fhir/Encounter/:id`
 
-### 6. Missed Network Activity
+### 7. Missed Network Activity
 
 The simulation drops one webhook. The next notification has a gap in `eventNumber`. The client detects the gap and runs recovery discovery.
 
@@ -259,14 +270,14 @@ Traffic:
 3. App decision: recovery
 4. `POST /network/rls/search`
 
-### 7. Sensitive Source Policy
+### 8. Sensitive Source Policy
 
 The network observes an event at a sensitive source. Policy only allows an opaque signal. The client can follow up, but the dashboard shows that source details were intentionally withheld.
 
 Traffic:
 
-1. Webhook with `detail-level: opaque`
-2. `POST /network/fhir/$resolve-activity`
+1. Webhook with no source, resource, or endpoint hints
+2. `POST /network/rls/search` with `activity-handle`
 3. Response may be empty, delayed, or narrowed depending on policy controls
 
 ## Data Fixtures
@@ -278,14 +289,11 @@ Minimum fixture set:
   - Valley Clinic: general outpatient, supports source query and Patient Data Feed.
   - Mercy Hospital Phoenix: hospital, feed endpoint hosted by network.
   - Northside Behavioral Health: sensitive source, source details withheld by default.
-- Two app policies:
-  - Aggressive: take first supported suggested action.
-  - Conservative: never query source until source is user-approved.
 - Four network disclosure policies:
   - Opaque only.
   - Source organization allowed.
-  - Source endpoint allowed.
-  - Feed endpoint allowed.
+- Source endpoint allowed.
+- Feed endpoint allowed.
 
 ## UI Interactions
 
@@ -304,7 +312,7 @@ Inspectors:
 - Raw JSON request/response.
 - Decoded FHIR notification summary.
 - Logical `NetworkActivitySignal` view.
-- Suggested action list with "why the app chose this" explanation.
+- Follow-up explanation showing the exact URL or query template the app used.
 - State diff before and after each selected trace event.
 
 ## Acceptance Criteria
@@ -323,7 +331,7 @@ Inspectors:
 1. Add Vite/React/Bun project skeleton under `demo/`.
 2. Implement the simulation kernel and route matching with unit tests.
 3. Implement FHIR builders for Subscription, SubscriptionStatus bundles, Parameters, and minimal Encounter/Appointment resources.
-4. Implement actors without UI and test the seven scenarios as scripts.
+4. Implement actors without UI and test the scenarios as scripts.
 5. Build the traffic log and message inspector.
 6. Build scenario controls and state panels.
 7. Add source-feed flows and missed-message recovery.

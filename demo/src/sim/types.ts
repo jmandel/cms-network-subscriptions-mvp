@@ -81,13 +81,12 @@ export type DisclosurePolicy =
   | "source-endpoint"
   | "feed-endpoint";
 
-export type AppPolicy = "aggressive" | "conservative";
-
 export type ScenarioId =
   | "bootstrap"
   | "opaque-rls"
   | "feed-hinted"
   | "known-source"
+  | "resource-hinted"
   | "source-feed"
   | "missed-activity"
   | "sensitive-source";
@@ -139,14 +138,14 @@ export interface PendingRead {
 
 export interface SuggestedActionView {
   code: string;
-  rank: number;
-  target: Record<string, string>;
-  params: Record<string, string | string[]>;
+  resourceType?: string;
+  resourceId?: string;
+  url?: string;
+  sourceQuery?: string;
 }
 
 export interface SimulationState {
   app: {
-    policy: AppPolicy;
     patientId: string;
     networkToken?: string;
     networkSubscriptionId?: string;

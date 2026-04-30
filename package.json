@@ -1,5 +1,5 @@
 {
-  "name": "cms-network-activity-notifications",
+  "name": "cms-network-subscriptions-mvp",
   "version": "0.0.0",
   "private": true,
   "type": "module",

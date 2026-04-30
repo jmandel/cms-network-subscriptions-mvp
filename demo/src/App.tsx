@@ -13,10 +13,27 @@ import {
   Shield,
   Trash2,
   Workflow,
+  type LucideIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import type { NetworkActivitySignal } from "../../schema/network-activity";
+import { parseNetworkActivityBundle } from "./sim/fhir";
 import { NetworkActivitySimulation } from "./sim/simulation";
-import type { AppPolicy, DisclosurePolicy, ScenarioId, Snapshot, TraceEvent } from "./sim/types";
+import type { DisclosurePolicy, ScenarioId, Snapshot, TraceEvent } from "./sim/types";
+
+type TrafficItem =
+  | {
+      id: string;
+      kind: "exchange";
+      requestEvent: TraceEvent;
+      responseEvent?: TraceEvent;
+      childEvents: TraceEvent[];
+    }
+  | {
+      id: string;
+      kind: "event";
+      event: TraceEvent;
+    };
 
 const disclosureOptions: Array<{ value: DisclosurePolicy; label: string }> = [
   { value: "opaque", label: "Opaque" },
@@ -25,19 +42,78 @@ const disclosureOptions: Array<{ value: DisclosurePolicy; label: string }> = [
   { value: "feed-endpoint", label: "Feed" },
 ];
 
-const appPolicyOptions: Array<{ value: AppPolicy; label: string }> = [
-  { value: "aggressive", label: "Aggressive" },
-  { value: "conservative", label: "Conservative" },
-];
-
-const scenarios: Array<{ id: ScenarioId; label: string; icon: typeof Play }> = [
-  { id: "bootstrap", label: "Bootstrap", icon: Play },
-  { id: "opaque-rls", label: "Opaque RLS", icon: Search },
-  { id: "feed-hinted", label: "Feed Hint", icon: Bell },
-  { id: "known-source", label: "Known Source", icon: Server },
-  { id: "source-feed", label: "Source Feed", icon: Radio },
-  { id: "missed-activity", label: "Missed Event", icon: Eye },
-  { id: "sensitive-source", label: "Sensitive Policy", icon: Shield },
+const scenarios: Array<{
+  id: ScenarioId;
+  label: string;
+  short: string;
+  lesson: string;
+  steps: string[];
+  icon: LucideIcon;
+}> = [
+  {
+    id: "bootstrap",
+    label: "Bootstrap",
+    short: "Authorize and subscribe.",
+    lesson: "The client creates one network-level activity subscription for the patient.",
+    steps: ["Network token", "Network Subscription", "Active activity stream"],
+    icon: Play,
+  },
+  {
+    id: "opaque-rls",
+    label: "Opaque Activity",
+    short: "Signal only, then RLS.",
+    lesson: "A network can say that something changed without naming the source.",
+    steps: ["Opaque activity webhook", "Client passes handle to discovery", "RLS down-scopes fan-out"],
+    icon: Search,
+  },
+  {
+    id: "feed-hinted",
+    label: "Feed Hint",
+    short: "Subscribe at a hinted feed.",
+    lesson: "When policy allows, the notification can point straight at a source feed endpoint.",
+    steps: ["Activity signal includes feed endpoint", "Client authorizes at source", "Client creates Patient Data Feed subscription"],
+    icon: Bell,
+  },
+  {
+    id: "known-source",
+    label: "Known Source",
+    short: "Run a hinted query.",
+    lesson: "If the notification includes an explicit source query, the client can run that query after source authorization.",
+    steps: ["Signal includes source query template", "Client authorizes at source", "Client runs the hinted Encounter query"],
+    icon: Server,
+  },
+  {
+    id: "resource-hinted",
+    label: "Resource Hint",
+    short: "Read one hinted resource.",
+    lesson: "If policy allows a specific target URL, the client can authorize at the source and read that resource directly.",
+    steps: ["Signal includes target-url", "Client authorizes at source", "Client reads that Encounter"],
+    icon: Database,
+  },
+  {
+    id: "source-feed",
+    label: "Source Feed",
+    short: "Ongoing EHR feed.",
+    lesson: "Network activity helps discover the source; source-level Patient Data Feed handles ongoing clinical notifications.",
+    steps: ["Create source feed subscription", "Source emits Encounter notification", "Client reads the referenced Encounter"],
+    icon: Radio,
+  },
+  {
+    id: "missed-activity",
+    label: "Missed Event",
+    short: "Detect a gap.",
+    lesson: "Standard Subscription event numbers let the client notice missed network webhooks.",
+    steps: ["First webhook is dropped", "Next event number has a gap", "Client queues recovery discovery"],
+    icon: Eye,
+  },
+  {
+    id: "sensitive-source",
+    label: "Sensitive Policy",
+    short: "Opaque by policy.",
+    lesson: "Sensitive sources can force opaque notifications while still permitting handle-scoped follow-up.",
+    steps: ["Network withholds source detail", "Client resolves through network", "Policy limits what comes back"],
+    icon: Shield,
+  },
 ];
 
 const actorItems = [
@@ -51,14 +127,16 @@ const actorItems = [
 export function App() {
   const simRef = useRef(new NetworkActivitySimulation());
   const [snapshot, setSnapshot] = useState<Snapshot>(() => simRef.current.snapshot());
-  const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>();
+  const [selectedTrafficId, setSelectedTrafficId] = useState<string | undefined>();
   const [inspectorMode, setInspectorMode] = useState<"pretty" | "raw">("pretty");
+  const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>("bootstrap");
 
-  const selectedTrace = useMemo(
+  const trafficItems = useMemo(() => buildTrafficItems(snapshot.state.trace), [snapshot.state.trace]);
+  const selectedTraffic = useMemo(
     () =>
-      snapshot.state.trace.find((event) => event.id === selectedTraceId) ??
-      snapshot.state.trace[snapshot.state.trace.length - 1],
-    [selectedTraceId, snapshot.state.trace],
+      trafficItems.find((item) => item.id === selectedTrafficId) ??
+      trafficItems[trafficItems.length - 1],
+    [selectedTrafficId, trafficItems],
   );
 
   function sync() {
@@ -66,29 +144,27 @@ export function App() {
   }
 
   function runScenario(id: ScenarioId) {
+    setActiveScenarioId(id);
     simRef.current.runScenario(id);
+    setSelectedTrafficId(undefined);
     sync();
   }
 
   function reset() {
     simRef.current = new NetworkActivitySimulation();
-    setSelectedTraceId(undefined);
+    setSelectedTrafficId(undefined);
+    setActiveScenarioId("bootstrap");
     setSnapshot(simRef.current.snapshot());
   }
 
   function clearTrace() {
     simRef.current.clearTrace();
-    setSelectedTraceId(undefined);
+    setSelectedTrafficId(undefined);
     sync();
   }
 
   function setDisclosure(value: DisclosurePolicy) {
     simRef.current.setDisclosurePolicy(value);
-    sync();
-  }
-
-  function setAppPolicy(value: AppPolicy) {
-    simRef.current.setAppPolicy(value);
     sync();
   }
 
@@ -98,6 +174,7 @@ export function App() {
   }
 
   const state = snapshot.state;
+  const activeScenario = scenarios.find((scenario) => scenario.id === activeScenarioId) ?? scenarios[0]!;
 
   return (
     <main className="shell">
@@ -118,81 +195,103 @@ export function App() {
         </div>
       </section>
 
-      <section className="workspace">
-        <aside className="left-rail panel">
+      <section className="panel control-panel">
+        <div className="control-row scenario-row">
           <SectionTitle icon={Workflow} label="Scenarios" />
-          <div className="scenario-grid">
+          <div className="scenario-strip">
             {scenarios.map((scenario) => {
               const Icon = scenario.icon;
               return (
-                <button key={scenario.id} className="scenario-button" onClick={() => runScenario(scenario.id)}>
-                  <Icon size={16} />
-                  <span>{scenario.label}</span>
+                <button
+                  key={scenario.id}
+                  className={`scenario-button ${scenario.id === activeScenarioId ? "selected" : ""}`}
+                  onClick={() => runScenario(scenario.id)}
+                >
+                  <Icon size={15} />
+                  <strong>{scenario.label}</strong>
                 </button>
               );
             })}
           </div>
+        </div>
 
-          <SectionTitle icon={Shield} label="Policies" />
-          <ControlGroup label="Network disclosure">
-            <Segmented
-              value={state.network.disclosurePolicy}
-              options={disclosureOptions}
-              onChange={(value) => setDisclosure(value as DisclosurePolicy)}
-            />
-          </ControlGroup>
-          <ControlGroup label="Client behavior">
-            <Segmented
-              value={state.app.policy}
-              options={appPolicyOptions}
-              onChange={(value) => setAppPolicy(value as AppPolicy)}
-            />
-          </ControlGroup>
-
-          <SectionTitle icon={Server} label="Sources" />
-          <div className="source-list">
-            {Object.values(state.sources).map((source) => (
-              <label key={source.id} className="source-row">
-                <input
-                  type="checkbox"
-                  checked={source.feedEnabled}
-                  disabled={!source.supportsFeed}
-                  onChange={(event) => setFeedEnabled(source.id, event.currentTarget.checked)}
-                />
-                <span>
-                  <strong>{source.name}</strong>
-                  <small>{source.kind}</small>
-                </span>
-              </label>
-            ))}
+        <div className="control-row setup-row">
+          <SectionTitle icon={Shield} label="Setup" />
+          <div className="setup-grid">
+            <ControlGroup label="Network disclosure">
+              <Segmented
+                value={state.network.disclosurePolicy}
+                options={disclosureOptions}
+                onChange={(value) => setDisclosure(value as DisclosurePolicy)}
+              />
+            </ControlGroup>
+            <ControlGroup label="Source feeds">
+              <div className="source-chips">
+                {Object.values(state.sources).map((source) => (
+                  <label key={source.id} className="source-chip">
+                    <input
+                      type="checkbox"
+                      checked={source.feedEnabled}
+                      disabled={!source.supportsFeed}
+                      onChange={(event) => setFeedEnabled(source.id, event.currentTarget.checked)}
+                    />
+                    <span>
+                      <strong>{source.name}</strong>
+                      <small>{source.kind}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </ControlGroup>
           </div>
-        </aside>
+        </div>
+      </section>
 
+      <section className="workspace">
         <section className="center-stack">
-          <section className="panel actor-panel">
-            <SectionTitle icon={Network} label="Actors" />
-            <div className="actor-map">
-              {actorItems.map((actor) => {
-                const Icon = actor.icon;
-                return (
-                  <div className="actor-node" key={actor.id}>
-                    <Icon size={20} />
-                    <span>{actor.label}</span>
-                  </div>
-                );
-              })}
+          <section className="panel guide-panel">
+            <div className="panel-head">
+              <SectionTitle icon={Network} label="Current Flow" />
+              <button className="small-action" type="button" onClick={() => runScenario(activeScenario.id)}>
+                Run again
+              </button>
+            </div>
+            <div className="guide-layout">
+              <div className="guide-copy">
+                <h2>{activeScenario.label}</h2>
+                <p>{activeScenario.lesson}</p>
+                <div className="step-strip">
+                  {activeScenario.steps.map((step, index) => (
+                    <span key={step}>
+                      <b>{index + 1}</b>
+                      {step}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="actor-strip" aria-label="Actors">
+                {actorItems.map((actor) => {
+                  const Icon = actor.icon;
+                  return (
+                    <span key={actor.id}>
+                      <Icon size={15} />
+                      {actor.label}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           </section>
 
           <section className="panel traffic-panel">
             <div className="panel-head">
               <SectionTitle icon={Send} label="Traffic" />
-              <span className="counter">{state.trace.length} events</span>
+              <span className="counter">{trafficItems.length} rows / {state.trace.length} events</span>
             </div>
-            <TrafficTable
-              trace={state.trace}
-              selectedTraceId={selectedTrace?.id}
-              onSelect={(id) => setSelectedTraceId(id)}
+            <TrafficList
+              items={trafficItems}
+              selectedTrafficId={selectedTraffic?.id}
+              onSelect={(id) => setSelectedTrafficId(id)}
             />
           </section>
         </section>
@@ -210,12 +309,14 @@ export function App() {
                 onChange={(value) => setInspectorMode(value as "pretty" | "raw")}
               />
             </div>
-            <Inspector trace={selectedTrace} mode={inspectorMode} />
+            <div className="inspector-body">
+              <Inspector item={selectedTraffic} mode={inspectorMode} />
+            </div>
           </section>
 
           <section className="state-grid">
-            <StatePanel title="App State" data={appStateView(state)} />
-            <StatePanel title="Network State" data={networkStateView(state)} />
+            <AppStatePanel state={state} />
+            <NetworkStatePanel state={state} />
           </section>
         </aside>
       </section>
@@ -223,97 +324,206 @@ export function App() {
   );
 }
 
-function TrafficTable({
-  trace,
-  selectedTraceId,
+function TrafficList({
+  items,
+  selectedTrafficId,
   onSelect,
 }: {
-  trace: TraceEvent[];
-  selectedTraceId?: string;
+  items: TrafficItem[];
+  selectedTrafficId?: string;
   onSelect: (id: string) => void;
 }) {
+  if (items.length === 0) {
+    return <div className="empty-state">Run a scenario to see the simulated HTTP traffic.</div>;
+  }
   return (
-    <div className="traffic-table-wrap">
-      <table className="traffic-table">
-        <thead>
-          <tr>
-            <th>Kind</th>
-            <th>Actor</th>
-            <th>Message</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trace.map((event) => (
-            <tr
-              key={event.id}
-              className={event.id === selectedTraceId ? "selected" : ""}
-              onClick={() => onSelect(event.id)}
-            >
-              <td>
-                <span className={`kind kind-${event.kind}`}>{event.kind}</span>
-              </td>
-              <td>{actorLabel(event.actor)}</td>
-              <td>
-                <div className="traffic-summary">{event.summary}</div>
-                {event.request && (
-                  <div className="traffic-path">
-                    {event.request.method} {event.request.path}
-                  </div>
-                )}
-              </td>
-              <td>{event.response?.status ?? ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="traffic-list">
+      {items.map((item, index) => (
+        <button
+          key={item.id}
+          className={`trace-row ${item.id === selectedTrafficId ? "selected" : ""}`}
+          onClick={() => onSelect(item.id)}
+          type="button"
+        >
+          <span className="trace-index">{index + 1}</span>
+          <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
+          <span className="trace-main">
+            <strong>{trafficItemSummary(item)}</strong>
+            <small>{trafficItemSubhead(item)}</small>
+          </span>
+          <span className="trace-status">{trafficItemStatus(item)}</span>
+        </button>
+      ))}
     </div>
   );
 }
 
-function Inspector({ trace, mode }: { trace?: TraceEvent; mode: "pretty" | "raw" }) {
-  if (!trace) {
+function Inspector({ item, mode }: { item?: TrafficItem; mode: "pretty" | "raw" }) {
+  if (!item) {
     return <div className="empty-state">No events</div>;
   }
-  const payload =
-    mode === "raw"
-      ? trace
-      : {
-          summary: trace.summary,
-          actor: trace.actor,
-          request: trace.request
-            ? {
-                from: trace.request.from,
-                to: trace.request.to,
-                method: trace.request.method,
-                path: trace.request.path,
-                query: trace.request.query,
-                headers: trace.request.headers,
-                body: trace.request.body,
-              }
-            : undefined,
-          response: trace.response
-            ? {
-                status: trace.response.status,
-                headers: trace.response.headers,
-                body: trace.response.body,
-              }
-            : undefined,
-          details: trace.details,
-        };
-  return <pre className="json-view">{JSON.stringify(payload, null, 2)}</pre>;
+  if (mode === "raw") {
+    return <pre className="json-view">{JSON.stringify(rawTrafficItem(item), null, 2)}</pre>;
+  }
+
+  const signal = networkSignalFromItem(item);
+  const action = actionFromItem(item);
+  const facts = trafficItemFacts(item);
+  const payloadFacts = payloadSummary(item, signal);
+  const childEvents = item.kind === "exchange" ? item.childEvents : [];
+
+  return (
+    <div className="inspector-pretty">
+      <section className="summary-card">
+        <div className="summary-card__top">
+          <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
+          <strong>{trafficItemSummary(item)}</strong>
+        </div>
+        <KeyValues items={facts} />
+      </section>
+
+      {childEvents.length > 0 ? <NestedEvents events={childEvents} /> : null}
+      {signal ? <SignalCard signal={signal} /> : null}
+      {action ? <ActionCard action={action} /> : null}
+      {payloadFacts.length > 0 ? (
+        <section className="summary-card">
+          <h3>Payload</h3>
+          <KeyValues items={payloadFacts} />
+        </section>
+      ) : null}
+    </div>
+  );
 }
 
-function StatePanel({ title, data }: { title: string; data: unknown }) {
+function NestedEvents({ events }: { events: TraceEvent[] }) {
   return (
-    <section className="panel state-panel">
-      <h2>{title}</h2>
-      <pre className="state-json">{JSON.stringify(data, null, 2)}</pre>
+    <section className="summary-card">
+      <h3>During This Exchange</h3>
+      <div className="nested-events">
+        {events.map((event) => (
+          <span key={event.id}>
+            <b className={`kind kind-${event.kind}`}>{event.kind}</b>
+            {event.summary}
+          </span>
+        ))}
+      </div>
     </section>
   );
 }
 
-function SectionTitle({ icon: Icon, label }: { icon: typeof Activity; label: string }) {
+function SignalCard({ signal }: { signal: NonNullable<ReturnType<typeof networkSignalFromTrace>> }) {
+  return (
+    <section className="summary-card">
+      <h3>Activity Signal</h3>
+      <KeyValues
+        items={[
+          ["activity", signal.activityType],
+          ["hint", hintLevelFromSignal(signal)],
+          ["confidence", signal.confidence ?? "not supplied"],
+          ["patient", signal.patient.id],
+          ["handle", signal.handle?.value ?? "none"],
+          ["source", signal.source?.organization?.name ?? "not disclosed"],
+          ["source endpoint", signal.source?.sourceEndpoint ?? "not disclosed"],
+          ["feed endpoint", signal.source?.feedEndpoint ?? "not disclosed"],
+          ["feed topic", signal.feedTopic ?? "not supplied"],
+          ["source query", signal.sourceQueries?.[0]?.urlTemplate ?? "not supplied"],
+          ["target", signal.targetResource?.reference ?? "not disclosed"],
+          ["target URL", signal.targetResource?.url ?? "not supplied"],
+        ]}
+      />
+    </section>
+  );
+}
+
+function ActionCard({ action }: { action: NonNullable<ReturnType<typeof actionFromTrace>> }) {
+  return (
+    <section className="summary-card">
+      <h3>Client Action</h3>
+      <KeyValues
+        items={[
+          ["action", action.code],
+          ["resource", action.resourceType && action.resourceId ? `${action.resourceType}/${action.resourceId}` : "none"],
+          ["url", action.url ?? "none"],
+          ["source query", action.sourceQuery ?? "none"],
+        ]}
+      />
+    </section>
+  );
+}
+
+function AppStatePanel({ state }: { state: Snapshot["state"] }) {
+  const knownSources = Object.values(state.app.knownSources);
+  const feedSubscriptions = Object.values(state.app.feedSubscriptions);
+  return (
+    <section className="panel state-panel">
+      <h2>App State</h2>
+      <KeyValues
+        items={[
+          ["patient", state.app.patientId],
+          ["network sub", state.app.networkSubscriptionId ?? "none"],
+          ["last event", String(state.app.lastNetworkEventNumber)],
+          ["known sources", String(knownSources.length)],
+          ["feed subs", String(feedSubscriptions.length)],
+        ]}
+      />
+      <MiniList
+        empty="No known sources"
+        items={knownSources.map((source) => `${source.name} (${source.discoveredBy})`)}
+      />
+      <MiniList
+        empty="No source feed subscriptions"
+        items={feedSubscriptions.map((subscription) => `${state.sources[subscription.sourceId]?.name ?? subscription.sourceId}: ${subscription.status}`)}
+      />
+    </section>
+  );
+}
+
+function NetworkStatePanel({ state }: { state: Snapshot["state"] }) {
+  const handles = Object.keys(state.network.handles);
+  return (
+    <section className="panel state-panel">
+      <h2>Network State</h2>
+      <KeyValues
+        items={[
+          ["disclosure", state.network.disclosurePolicy],
+          ["event count", String(state.network.eventCounter)],
+          ["handles", String(handles.length)],
+          ["drop next", state.network.dropNextWebhook ? "yes" : "no"],
+        ]}
+      />
+      <div className="source-health">
+        {Object.values(state.sources).map((source) => (
+          <span key={source.id} className={source.feedEnabled ? "on" : "off"}>
+            {source.name}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MiniList({ items, empty }: { items: string[]; empty: string }) {
+  return (
+    <div className="mini-list">
+      {items.length === 0 ? <span>{empty}</span> : items.map((item) => <span key={item}>{item}</span>)}
+    </div>
+  );
+}
+
+function KeyValues({ items }: { items: Array<[string, ReactNode]> }) {
+  return (
+    <dl className="key-values">
+      {items.map(([key, value]) => (
+        <div key={key}>
+          <dt>{key}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function SectionTitle({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   return (
     <div className="section-title">
       <Icon size={16} />
@@ -322,7 +532,7 @@ function SectionTitle({ icon: Icon, label }: { icon: typeof Activity; label: str
   );
 }
 
-function ControlGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function ControlGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="control-group">
       <span>{label}</span>
@@ -356,41 +566,247 @@ function Segmented({
   );
 }
 
-function appStateView(state: Snapshot["state"]) {
-  return {
-    patient: state.app.patientId,
-    networkSubscription: state.app.networkSubscriptionId ?? null,
-    knownSources: Object.values(state.app.knownSources).map((source) => ({
-      id: source.id,
-      name: source.name,
-      discoveredBy: source.discoveredBy,
-    })),
-    feedSubscriptions: Object.values(state.app.feedSubscriptions),
-    sourceTokens: Object.keys(state.app.sourceTokens),
-    lastNetworkEventNumber: state.app.lastNetworkEventNumber,
-    seenActivityIds: state.app.seenActivityIds,
-    recentDecisions: state.app.decisions.slice(0, 5),
-  };
-}
-
-function networkStateView(state: Snapshot["state"]) {
-  return {
-    disclosurePolicy: state.network.disclosurePolicy,
-    eventCounter: state.network.eventCounter,
-    dropNextWebhook: state.network.dropNextWebhook,
-    handles: Object.entries(state.network.handles).map(([handle, value]) => ({
-      handle,
-      sourceId: value.sourceId,
-      createdAt: value.createdAt,
-    })),
-    sources: Object.values(state.sources).map((source) => ({
-      id: source.id,
-      feedEnabled: source.feedEnabled,
-      sensitive: source.sensitive,
-    })),
-  };
-}
-
 function actorLabel(actor?: string) {
   return actorItems.find((item) => item.id === actor)?.label ?? actor ?? "";
+}
+
+function buildTrafficItems(trace: TraceEvent[]): TrafficItem[] {
+  const items: TrafficItem[] = [];
+  const byRequestId = new Map<string, Extract<TrafficItem, { kind: "exchange" }>>();
+  const openRequestIds: string[] = [];
+
+  for (const event of trace) {
+    if (event.request && !event.response) {
+      const item: Extract<TrafficItem, { kind: "exchange" }> = {
+        id: event.request.id,
+        kind: "exchange",
+        requestEvent: event,
+        childEvents: [],
+      };
+      items.push(item);
+      byRequestId.set(event.request.id, item);
+      openRequestIds.push(event.request.id);
+      continue;
+    }
+
+    if (event.request && event.response) {
+      const item = byRequestId.get(event.request.id);
+      if (item) {
+        item.responseEvent = event;
+        const openIndex = openRequestIds.lastIndexOf(event.request.id);
+        if (openIndex >= 0) {
+          openRequestIds.splice(openIndex, 1);
+        }
+      } else {
+        items.push({
+          id: event.id,
+          kind: "event",
+          event,
+        });
+      }
+      continue;
+    }
+
+    const activeRequestId = openRequestIds[openRequestIds.length - 1];
+    const activeItem = activeRequestId ? byRequestId.get(activeRequestId) : undefined;
+    if (activeItem) {
+      activeItem.childEvents.push(event);
+    } else {
+      items.push({
+        id: event.id,
+        kind: "event",
+        event,
+      });
+    }
+  }
+
+  return items;
+}
+
+function trafficItemKind(item: TrafficItem) {
+  if (item.kind === "event") return item.event.kind;
+  if (item.requestEvent.kind === "webhook") return "webhook";
+  if (item.responseEvent?.kind === "error") return "error";
+  return "exchange";
+}
+
+function trafficItemSummary(item: TrafficItem) {
+  if (item.kind === "event") return item.event.summary;
+  return item.requestEvent.summary;
+}
+
+function trafficItemSubhead(item: TrafficItem) {
+  if (item.kind === "event") return flowLabel(item.event);
+  const request = item.requestEvent.request;
+  return `${actorLabel(request?.from)} -> ${actorLabel(request?.to)} · ${request?.method} ${request?.path}`;
+}
+
+function trafficItemStatus(item: TrafficItem) {
+  if (item.kind === "event") return "";
+  const status = item.responseEvent?.response?.status;
+  return status ? String(status) : "...";
+}
+
+function trafficItemEvents(item: TrafficItem): TraceEvent[] {
+  return item.kind === "event"
+    ? [item.event]
+    : [
+        item.requestEvent,
+        ...item.childEvents,
+        ...(item.responseEvent ? [item.responseEvent] : []),
+      ];
+}
+
+function rawTrafficItem(item: TrafficItem) {
+  if (item.kind === "event") return item.event;
+  return {
+    kind: "exchange",
+    summary: trafficItemSummary(item),
+    request: item.requestEvent,
+    eventsDuringExchange: item.childEvents,
+    response: item.responseEvent,
+  };
+}
+
+function flowLabel(event: TraceEvent) {
+  if (event.request) {
+    return `${actorLabel(event.request.from)} -> ${actorLabel(event.request.to)}`;
+  }
+  return actorLabel(event.actor);
+}
+
+function trafficItemFacts(item: TrafficItem): Array<[string, ReactNode]> {
+  if (item.kind === "event") {
+    return [
+      ["flow", flowLabel(item.event)],
+      ["http", item.event.request ? `${item.event.request.method} ${item.event.request.path}` : "none"],
+      ["status", item.event.response?.status ? String(item.event.response.status) : "none"],
+      ["correlation", item.event.correlationId ?? item.event.request?.correlationId ?? "none"],
+    ];
+  }
+  const request = item.requestEvent.request;
+  return [
+    ["flow", `${actorLabel(request?.from)} -> ${actorLabel(request?.to)}`],
+    ["http", request ? `${request.method} ${request.path}` : "none"],
+    ["status", trafficItemStatus(item)],
+    ["correlation", item.requestEvent.correlationId ?? request?.correlationId ?? "none"],
+  ];
+}
+
+function networkSignalFromItem(item: TrafficItem): NetworkActivitySignal | undefined {
+  for (const event of trafficItemEvents(item)) {
+    const signal = networkSignalFromTrace(event);
+    if (signal) return signal;
+  }
+  return undefined;
+}
+
+function networkSignalFromTrace(event: TraceEvent): NetworkActivitySignal | undefined {
+  const fromDetails = (event.details as any)?.signal;
+  if (fromDetails?.activityId) {
+    return fromDetails as NetworkActivitySignal;
+  }
+  return parseNetworkActivityBundle(event.request?.body);
+}
+
+function actionFromItem(item: TrafficItem) {
+  for (const event of trafficItemEvents(item)) {
+    const action = actionFromTrace(event);
+    if (action) return action;
+  }
+  return null;
+}
+
+function actionFromTrace(event: TraceEvent) {
+  const action = (event.details as any)?.action;
+  return action?.code
+    ? action as {
+        code: string;
+        resourceType?: string;
+        resourceId?: string;
+        url?: string;
+        sourceQuery?: string;
+      }
+    : null;
+}
+
+function hintLevelFromSignal(signal: NetworkActivitySignal) {
+  if (signal.targetResource) return "resource hinted";
+  if (signal.source?.feedEndpoint) return "feed hinted";
+  if (signal.sourceQueries?.length || signal.source?.sourceEndpoint) return "query hinted";
+  if (signal.source?.organization) return "source hinted";
+  return "opaque";
+}
+
+function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSignalFromItem>): Array<[string, ReactNode]> {
+  if (signal) {
+    return [
+      ["FHIR focus", "Parameters"],
+      ["topic", signal.topic],
+      ["source query", signal.sourceQueries?.[0]?.urlTemplate ?? "not supplied"],
+      ["target URL", signal.targetResource?.url ?? "not supplied"],
+      ["feed topic", signal.feedTopic ?? "not supplied"],
+      ["resource types", signal.resourceTypes?.join(", ") || "not supplied"],
+      ["window", signal.activityWindow?.start ?? "not supplied"],
+    ];
+  }
+
+  const event = item.kind === "event" ? item.event : item.responseEvent ?? item.requestEvent;
+  const payload = event.response?.body ?? event.request?.body ?? event.details;
+  const body = payload as any;
+  if (!body || typeof body !== "object") return [];
+
+  if (body.access_token) {
+    return [
+      ["token", body.access_token],
+      ["patient", body.patient ?? "none"],
+      ["scope", body.scope ?? "none"],
+    ];
+  }
+  if (body.resourceType === "Subscription") {
+    return [
+      ["resource", "Subscription"],
+      ["topic", body.criteria ?? "none"],
+      ["filter", body._criteria?.extension?.[0]?.valueString ?? "none"],
+      ["channel", body.channel?.endpoint ?? "none"],
+    ];
+  }
+  if (body.sources) {
+    return [
+      ["mode", body.mode ?? "discovery"],
+      ["fan out", String(body.fanOut ?? "unknown")],
+      ["handle used", body.handleUsed ? "yes" : "no"],
+      ["sources", body.sources.map((source: any) => source.organization?.name ?? source.id).join(", ") || "none"],
+      ["withheld", String(body.withheld ?? 0)],
+    ];
+  }
+  if (body.resourceType === "Bundle") {
+    const status = body.entry?.[0]?.resource;
+    const focus = status?.notificationEvent?.[0]?.focus;
+    return [
+      ["bundle", body.type ?? "Bundle"],
+      ["topic", status?.topic ?? "none"],
+      ["event", String(status?.notificationEvent?.[0]?.eventNumber ?? "none")],
+      ["focus", focus?.reference ?? "none"],
+    ];
+  }
+  if (body.resourceType === "Encounter" || body.resourceType === "Appointment") {
+    return [
+      ["resource", `${body.resourceType}/${body.id}`],
+      ["status", body.status ?? "none"],
+      ["source", body.serviceProvider?.display ?? "none"],
+      ["last updated", body.meta?.lastUpdated ?? "none"],
+    ];
+  }
+  if (body.error) {
+    return [["error", body.error]];
+  }
+  return [];
+}
+
+function compactRecord(value: Record<string, string | string[]> | undefined) {
+  if (!value || Object.keys(value).length === 0) return "none";
+  return Object.entries(value)
+    .map(([key, item]) => `${key}: ${Array.isArray(item) ? item.join(", ") : item}`)
+    .join("; ");
 }

@@ -60,7 +60,6 @@ export function createInitialState(): SimulationState {
 
   return {
     app: {
-      policy: "aggressive",
       patientId: PATIENT_ID,
       knownSources: {},
       feedSubscriptions: {},

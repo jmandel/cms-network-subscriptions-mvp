@@ -17,6 +17,12 @@ bun install
 bun run dev
 ```
 
+The GitHub Pages workflow builds the app with:
+
+```sh
+BASE_PATH=/cms-network-subscriptions-mvp/ bun run build
+```
+
 Additional working notes:
 
 - [design-review.md](design-review.md) critiques the initial draft and records the adjustments made after an implementability pass.

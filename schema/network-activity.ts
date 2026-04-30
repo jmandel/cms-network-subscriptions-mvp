@@ -1,27 +1,16 @@
 export type FhirInstant = string;
 export type Url = string;
 
-export type DetailLevel =
-  | "opaque"
-  | "source-hinted"
-  | "query-hinted"
-  | "feed-hinted";
-
 export type ActivityType =
   | "activity-detected"
   | "care-relationship-detected"
   | "source-activity-detected"
+  | "source-resource-detected"
   | "feed-available"
   | "capability-changed"
   | (string & {});
 
 export type ActivityConfidence = "confirmed" | "probable" | "possible";
-
-export type ClientActionCode =
-  | "rediscover"
-  | "query-network"
-  | "query-source"
-  | "subscribe-source";
 
 export interface NetworkActivitySignal {
   topic: Url;
@@ -29,13 +18,14 @@ export interface NetworkActivitySignal {
   patient: PatientContext;
   observedAt: FhirInstant;
   activityType: ActivityType;
-  detailLevel: DetailLevel;
   confidence?: ActivityConfidence;
   handle?: OpaqueActivityHandle;
   source?: SourceHint;
+  targetResource?: TargetResourceHint;
+  sourceQueries?: SourceQueryHint[];
+  feedTopic?: Url;
   activityWindow?: TimeWindow;
   resourceTypes?: FhirResourceType[];
-  suggestedActions: SuggestedAction[];
   extensions?: Record<string, unknown>;
 }
 
@@ -48,19 +38,23 @@ export interface PatientContext {
 export interface OpaqueActivityHandle {
   value: string;
   expiresAt?: FhirInstant;
-  passAs?: HandleBinding[];
-}
-
-export interface HandleBinding {
-  method: "header" | "query-param" | "body-parameter" | "token-request-parameter";
-  name: string;
-  appliesTo?: ClientActionCode[];
 }
 
 export interface SourceHint {
   organization?: OrganizationHint;
   sourceEndpoint?: Url;
   feedEndpoint?: Url;
+}
+
+export interface TargetResourceHint {
+  reference: string;
+  type?: FhirResourceType;
+  url?: Url;
+  display?: string;
+}
+
+export interface SourceQueryHint {
+  urlTemplate: string;
 }
 
 export interface OrganizationHint {
@@ -85,29 +79,3 @@ export type FhirResourceType =
   | "Location"
   | "Organization"
   | (string & {});
-
-export interface SuggestedAction {
-  code: ClientActionCode;
-  rank?: number;
-  target?: ActionTarget;
-  params?: ActionParameters;
-}
-
-export interface ActionTarget {
-  networkEndpoint?: Url;
-  sourceEndpoint?: Url;
-  feedEndpoint?: Url;
-  organization?: OrganizationHint;
-}
-
-export interface ActionParameters {
-  activityHandle?: string;
-  handleParameter?: string;
-  discoveryHint?: string;
-  resourceTypes?: FhirResourceType[];
-  since?: FhirInstant;
-  until?: FhirInstant;
-  topic?: Url;
-  queryTemplate?: string;
-  extensions?: Record<string, unknown>;
-}

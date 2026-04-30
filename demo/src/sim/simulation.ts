@@ -1,4 +1,4 @@
-import type { NetworkActivitySignal } from "../../../schema/network-activity";
+import type { NetworkActivitySignal, TargetResourceHint } from "../../../schema/network-activity";
 import {
   NETWORK_ACTIVITY_TOPIC,
   PATIENT_DATA_FEED_TOPIC,
@@ -15,7 +15,6 @@ import {
 } from "./fhir";
 import { SimKernel } from "./kernel";
 import type {
-  AppPolicy,
   DisclosurePolicy,
   ScenarioId,
   SimRequest,
@@ -43,6 +42,23 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function opaqueToken(prefix: string, eventNumber: number) {
+  const mixed = Math.imul(eventNumber + 0x9e3779b9, 0x85ebca6b) >>> 0;
+  return `${prefix}-${mixed.toString(36).padStart(7, "0")}`;
+}
+
+type ActivityHintLevel = "opaque" | "source-hinted" | "query-hinted" | "resource-hinted" | "feed-hinted";
+
+const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
+
+function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
+  if (signal.targetResource) return "resource-hinted";
+  if (signal.source?.feedEndpoint) return "feed-hinted";
+  if (signal.sourceQueries?.length || signal.source?.sourceEndpoint) return "query-hinted";
+  if (signal.source?.organization) return "source-hinted";
+  return "opaque";
+}
+
 export class NetworkActivitySimulation {
   readonly state: SimulationState;
   private readonly kernel: SimKernel;
@@ -63,16 +79,6 @@ export class NetworkActivitySimulation {
       kind: "state-change",
       actor: "network",
       summary: `Network disclosure policy set to ${policy}`,
-      details: { policy },
-    });
-  }
-
-  setAppPolicy(policy: AppPolicy) {
-    this.state.app.policy = policy;
-    this.kernel.trace({
-      kind: "state-change",
-      actor: "client",
-      summary: `Client policy set to ${policy}`,
       details: { policy },
     });
   }
@@ -158,6 +164,16 @@ export class NetworkActivitySimulation {
       this.processPendingActions();
     }
 
+    if (id === "resource-hinted") {
+      this.setDisclosurePolicy("source-endpoint");
+      this.injectNetworkEvent("mercy", "source-resource-detected", "confirmed", {
+        reference: "Encounter/enc-mercy-1",
+        type: "Encounter",
+        url: "https://mercy-phoenix.example.org/fhir/Encounter/enc-mercy-1",
+      });
+      this.processPendingActions();
+    }
+
     if (id === "source-feed") {
       if (!this.state.app.feedSubscriptions.valley) {
         this.setDisclosurePolicy("feed-endpoint");
@@ -188,6 +204,7 @@ export class NetworkActivitySimulation {
     sourceId: string,
     activityType = "activity-detected",
     confidence: NetworkActivitySignal["confidence"] = "confirmed",
+    targetResource?: TargetResourceHint,
   ) {
     this.kernel.send({
       from: "simulation",
@@ -195,7 +212,7 @@ export class NetworkActivitySimulation {
       method: "POST",
       path: "/network/internal/events",
       headers: { "content-type": "application/json" },
-      body: { sourceId, activityType, confidence },
+      body: { sourceId, activityType, confidence, targetResource },
       summary: `Simulate ${activityType} at ${this.state.sources[sourceId].name}`,
     });
   }
@@ -219,13 +236,41 @@ export class NetworkActivitySimulation {
         return;
       }
       const { signal, action } = pending;
-      this.state.app.decisions.unshift(`Take ${action.code} for ${signal.activityId}`);
+      this.state.app.decisions.unshift(`Follow ${action.code} for ${signal.activityId}`);
       this.kernel.trace({
         kind: "decision",
         actor: "client",
-        summary: `Client takes ${action.code}`,
+        summary: `Client follows ${action.code}`,
         details: { signal, action },
       });
+
+      if (action.code === "read-source") {
+        const source = this.sourceFromSignal(signal);
+        if (!source || !action.resourceType || !action.resourceId) {
+          this.traceDecision("No specific source resource available for read-source", { signal, action });
+          continue;
+        }
+        const token = this.ensureSourceToken(source);
+        const response = this.kernel.send({
+          from: "client",
+          to: "source",
+          method: "GET",
+          path: `/sources/${source.id}/fhir/${action.resourceType}/${action.resourceId}`,
+          headers: { authorization: `Bearer ${token.token}` },
+          correlationId: signal.activityId,
+          summary: action.url
+            ? `Read hinted resource URL`
+            : `Read hinted ${action.resourceType}/${action.resourceId}`,
+        });
+        this.learnSource(source, "resource hint");
+        this.kernel.trace({
+          kind: "state-change",
+          actor: "client",
+          summary: `Client read hinted ${action.resourceType}/${action.resourceId}`,
+          details: response.body,
+          correlationId: signal.activityId,
+        });
+      }
 
       if (action.code === "rediscover") {
         const response = this.kernel.send({
@@ -237,7 +282,6 @@ export class NetworkActivitySimulation {
           body: {
             patient: signal.patient.id,
             activityHandle: signal.handle?.value,
-            discoveryHint: action.params.discoveryHint,
           },
           correlationId: signal.activityId,
           summary: "Run RLS discovery",
@@ -254,7 +298,7 @@ export class NetworkActivitySimulation {
           headers: { "content-type": "application/fhir+json" },
           body: {
             resourceType: "Parameters",
-            parameter: [{ name: action.params.handleParameter ?? "activity-handle", valueString: signal.handle?.value }],
+            parameter: [{ name: "activity-handle", valueString: signal.handle?.value }],
           },
           correlationId: signal.activityId,
           summary: "Resolve activity at network",
@@ -264,20 +308,20 @@ export class NetworkActivitySimulation {
 
       if (action.code === "query-source") {
         const source = this.sourceFromSignal(signal);
-        if (!source) {
-          this.traceDecision("No source endpoint available for query-source", { signal });
+        if (!source || !action.sourceQuery) {
+          this.traceDecision("No explicit source query available for query-source", { signal, action });
           continue;
         }
         const token = this.ensureSourceToken(source);
-        const since = String(action.params.since ?? signal.activityWindow?.start ?? "2026-04-29T00:00:00Z");
+        const path = renderSourceQueryPath(source, action.sourceQuery, token.patient);
         const response = this.kernel.send({
           from: "client",
           to: "source",
           method: "GET",
-          path: `/sources/${source.id}/fhir/Encounter?patient=${token.patient}&_lastUpdated=${encodeURIComponent(since)}`,
+          path,
           headers: { authorization: `Bearer ${token.token}` },
           correlationId: signal.activityId,
-          summary: `Query ${source.name} Encounters`,
+          summary: `Run hinted source query`,
         });
         this.learnSource(source, "source query");
         this.kernel.trace({
@@ -406,17 +450,18 @@ export class NetworkActivitySimulation {
           sourceId: string;
           activityType: string;
           confidence: NetworkActivitySignal["confidence"];
+          targetResource?: TargetResourceHint;
         };
         const source = context.state.sources[body.sourceId];
         context.state.network.eventCounter += 1;
         const eventNumber = context.state.network.eventCounter;
-        const handle = `handle-${String(eventNumber).padStart(3, "0")}-${source.id}`;
+        const handle = opaqueToken("ah", eventNumber);
         context.state.network.handles[handle] = {
           sourceId: source.id,
           patientId: PATIENT_ID,
           createdAt: new Date().toISOString(),
         };
-        const signal = this.buildSignal(source, handle, body.activityType, body.confidence);
+        const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence, body.targetResource);
         const bundle = networkActivityBundle(signal, eventNumber, context.state.network.subscriptionId ?? "network-sub-1");
 
         if (context.state.network.dropNextWebhook) {
@@ -439,7 +484,7 @@ export class NetworkActivitySimulation {
           body: bundle,
           kind: "webhook",
           correlationId: signal.activityId,
-          summary: `Deliver network activity ${signal.detailLevel}`,
+          summary: `Deliver network activity ${hintLevelForSignal(signal)}`,
         });
         return json(request, 202, { accepted: true, delivered: true, eventNumber });
       },
@@ -470,14 +515,9 @@ export class NetworkActivitySimulation {
               patient: { id: PATIENT_ID, scope: "network" },
               observedAt: new Date().toISOString(),
               activityType: "activity-detected",
-              detailLevel: "opaque",
-              suggestedActions: [],
             },
             action: {
               code: "rediscover",
-              rank: 1,
-              target: {},
-              params: {},
             },
           });
         }
@@ -650,87 +690,70 @@ export class NetworkActivitySimulation {
 
   private buildSignal(
     source: SourceRecord,
+    eventNumber: number,
     handle: string,
     activityType: string,
     confidence: NetworkActivitySignal["confidence"],
+    targetResource?: TargetResourceHint,
   ): NetworkActivitySignal {
     const effectivePolicy: DisclosurePolicy = source.sensitive ? "opaque" : this.state.network.disclosurePolicy;
-    const detailLevel = this.detailLevelFor(source, effectivePolicy);
+    const requestedTarget = targetResource;
+    const hintLevel = this.hintLevelFor(source, effectivePolicy, requestedTarget);
     const signal: NetworkActivitySignal = {
       topic: NETWORK_ACTIVITY_TOPIC,
-      activityId: `act-${String(this.state.network.eventCounter).padStart(4, "0")}-${source.id}`,
+      activityId: opaqueToken("act", eventNumber),
       patient: { id: PATIENT_ID, scope: "network" },
       observedAt: new Date().toISOString(),
       activityType,
-      detailLevel,
       confidence,
       handle: {
         value: handle,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
-      resourceTypes: ["Encounter", "Appointment"],
-      activityWindow: { start: "2026-04-29T15:00:00Z" },
-      suggestedActions: [],
     };
 
-    if (detailLevel !== "opaque") {
+    if (hintLevel !== "opaque") {
       signal.source = { organization: { identifiers: organization(source).identifier, name: source.name } };
     }
-    if (detailLevel === "query-hinted" || detailLevel === "feed-hinted") {
+    if (hintLevel === "query-hinted" || hintLevel === "resource-hinted" || hintLevel === "feed-hinted") {
       signal.source = { ...(signal.source ?? {}), sourceEndpoint: source.endpoint };
     }
-    if (detailLevel === "feed-hinted") {
+    if (hintLevel === "feed-hinted") {
       signal.source = { ...(signal.source ?? {}), feedEndpoint: source.feedEndpoint };
     }
 
-    if (detailLevel === "feed-hinted") {
-      signal.suggestedActions.push({
-        code: "subscribe-source",
-        rank: 1,
-        target: { feedEndpoint: source.feedEndpoint },
-        params: {
-          topic: PATIENT_DATA_FEED_TOPIC,
-          resourceTypes: ["Encounter", "Appointment"],
-          activityHandle: handle,
-          handleParameter: "activity-handle",
+    if (hintLevel === "resource-hinted" && requestedTarget) {
+      signal.targetResource = {
+        ...requestedTarget,
+        url: requestedTarget.url ?? targetUrlFor(source, requestedTarget),
+      };
+      signal.resourceTypes = requestedTarget.type ? [requestedTarget.type] : undefined;
+    } else if (hintLevel === "feed-hinted") {
+      signal.feedTopic = PATIENT_DATA_FEED_TOPIC;
+      signal.resourceTypes = ["Encounter", "Appointment"];
+    } else if (hintLevel === "query-hinted") {
+      signal.resourceTypes = ["Encounter"];
+      signal.activityWindow = { start: ACTIVITY_WINDOW_START };
+      signal.sourceQueries = [
+        {
+          urlTemplate: sourceQueryTemplate(source, "Encounter", ACTIVITY_WINDOW_START),
         },
-      });
-    } else if (detailLevel === "query-hinted") {
-      signal.suggestedActions.push({
-        code: "query-source",
-        rank: 1,
-        target: { sourceEndpoint: source.endpoint },
-        params: {
-          resourceTypes: ["Encounter"],
-          since: "2026-04-29T15:00:00Z",
-          activityHandle: handle,
-          handleParameter: "activity-handle",
-        },
-      });
-    } else if (detailLevel === "source-hinted") {
-      signal.suggestedActions.push({
-        code: "query-network",
-        rank: 1,
-        target: { networkEndpoint: "https://network.example.org/fhir/$resolve-activity" },
-        params: { activityHandle: handle, handleParameter: "activity-handle" },
-      });
-    } else {
-      signal.suggestedActions.push({
-        code: source.sensitive ? "query-network" : "rediscover",
-        rank: 1,
-        target: source.sensitive
-          ? { networkEndpoint: "https://network.example.org/fhir/$resolve-activity" }
-          : { networkEndpoint: "https://network.example.org/rls/search" },
-        params: { activityHandle: handle, handleParameter: "activity-handle" },
-      });
+      ];
     }
 
     return signal;
   }
 
-  private detailLevelFor(source: SourceRecord, policy: DisclosurePolicy): NetworkActivitySignal["detailLevel"] {
+  private hintLevelFor(
+    source: SourceRecord,
+    policy: DisclosurePolicy,
+    targetResource?: TargetResourceHint,
+  ): ActivityHintLevel {
     if (policy === "opaque") {
       return "opaque";
+    }
+    if (targetResource) {
+      return "resource-hinted";
     }
     if (policy === "source-org") {
       return "source-hinted";
@@ -742,25 +765,22 @@ export class NetworkActivitySimulation {
   }
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
-    const actions = (signal.suggestedActions as unknown as SuggestedActionView[]).sort(
-      (a, b) => (a.rank ?? 1) - (b.rank ?? 1),
-    );
-    const fallback = actions[0] ?? { code: "rediscover", rank: 1, target: {}, params: {} };
-    const source = this.sourceFromSignal(signal);
-    if (
-      this.state.app.policy === "conservative" &&
-      source &&
-      !this.state.app.knownSources[source.id] &&
-      ["query-source", "subscribe-source"].includes(fallback.code)
-    ) {
-      return {
-        code: "rediscover",
-        rank: 1,
-        target: { networkEndpoint: "https://network.example.org/rls/search" },
-        params: { activityHandle: signal.handle?.value ?? "", handleParameter: "activity-handle" },
-      };
+    if (signal.targetResource && signal.source?.sourceEndpoint) {
+      const target = resourceFromReference(signal.targetResource.reference, signal.targetResource.type);
+      if (target) {
+        return { code: "read-source", ...target, url: signal.targetResource.url };
+      }
     }
-    return fallback;
+    if (signal.source?.feedEndpoint) {
+      return { code: "subscribe-source" };
+    }
+    if (signal.source?.sourceEndpoint && signal.sourceQueries?.[0]?.urlTemplate) {
+      return { code: "query-source", sourceQuery: signal.sourceQueries[0].urlTemplate };
+    }
+    if (signal.source?.organization && signal.handle) {
+      return { code: "query-network" };
+    }
+    return { code: "rediscover" };
   }
 
   private ensureSourceToken(source: SourceRecord) {
@@ -815,8 +835,7 @@ export class NetworkActivitySimulation {
     if (source) {
       return source;
     }
-    const handle = signal.handle?.value;
-    return handle ? this.state.sources[this.state.network.handles[handle]?.sourceId] : undefined;
+    return undefined;
   }
 
   private resolveSources(body: unknown, state: SimulationState, mode: "RLS" | "network-query") {
@@ -847,7 +866,11 @@ export class NetworkActivitySimulation {
 
   private queryResources(request: SimRequest, state: SimulationState, resourceType: "Encounter" | "Appointment") {
     const source = state.sources[pathPart(request.path, 1)];
-    const resources = state.resources[source.id]?.[resourceType] ?? [];
+    const patient = firstQueryValue(request.query.patient);
+    const lastUpdated = firstQueryValue(request.query._lastUpdated);
+    const resources = (state.resources[source.id]?.[resourceType] ?? []).filter((resource) =>
+      matchesResourceQuery(resource, patient, lastUpdated),
+    );
     return json(request, 200, {
       resourceType: "Bundle",
       type: "searchset",
@@ -875,6 +898,66 @@ function extractHandle(body: unknown) {
   }
   const parameter = candidate?.parameter?.find?.((item: any) => item.name === "activity-handle");
   return parameter?.valueString ? String(parameter.valueString) : undefined;
+}
+
+function resourceFromReference(reference: string, type?: string) {
+  const parts = reference.split("/").filter(Boolean);
+  const resourceId = parts[parts.length - 1];
+  const resourceType = type ?? parts[parts.length - 2];
+  if (!resourceType || !resourceId) {
+    return undefined;
+  }
+  return { resourceType, resourceId };
+}
+
+function sourceQueryTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
+  return `${source.endpoint}/${resourceType}?patient={patient}&_lastUpdated=ge${encodeURIComponent(since)}`;
+}
+
+function targetUrlFor(source: SourceRecord, target: TargetResourceHint) {
+  if (/^https?:\/\//.test(target.reference)) {
+    return target.reference;
+  }
+  return `${source.endpoint.replace(/\/$/, "")}/${target.reference.replace(/^\//, "")}`;
+}
+
+function renderSourceQueryPath(source: SourceRecord, template: string, patient: string) {
+  const rendered = template.replace(/\{patient\}/g, encodeURIComponent(patient));
+  if (/^https?:\/\//.test(rendered)) {
+    const renderedUrl = new URL(rendered);
+    const endpointUrl = new URL(source.endpoint);
+    const endpointPath = endpointUrl.pathname.replace(/\/$/, "");
+    let sourceRelativePath = renderedUrl.pathname;
+    if (endpointPath && sourceRelativePath.startsWith(endpointPath)) {
+      sourceRelativePath = sourceRelativePath.slice(endpointPath.length);
+    }
+    sourceRelativePath = sourceRelativePath.replace(/^\//, "");
+    return `/sources/${source.id}/fhir/${sourceRelativePath}${renderedUrl.search}`;
+  }
+  return `/sources/${source.id}/fhir/${rendered.replace(/^\//, "")}`;
+}
+
+function firstQueryValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function matchesResourceQuery(resource: unknown, patient?: string, lastUpdated?: string) {
+  const item = resource as any;
+  if (patient) {
+    const subject = item.subject?.reference;
+    const participants = item.participant?.map?.((participant: any) => participant.actor?.reference) ?? [];
+    const references = [subject, ...participants].filter(Boolean);
+    if (!references.some((reference: string) => reference === `Patient/${patient}` || reference.endsWith(`/${patient}`))) {
+      return false;
+    }
+  }
+  if (lastUpdated?.startsWith("ge")) {
+    const threshold = lastUpdated.slice(2);
+    if (!item.meta?.lastUpdated || String(item.meta.lastUpdated) < threshold) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function bundleCount(body: unknown) {
