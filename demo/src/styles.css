@@ -119,6 +119,30 @@ h1 {
   width: 100%;
 }
 
+.app-footer {
+  align-items: center;
+  color: #52616d;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 8px 12px;
+  justify-content: space-between;
+  margin: 12px auto 0;
+  max-width: 1800px;
+  width: 100%;
+}
+
+.app-footer a {
+  color: #0c5559;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-footer a:hover {
+  text-decoration: underline;
+}
+
 .panel {
   background: #ffffff;
   border: 1px solid #d8e0e5;

@@ -320,6 +320,19 @@ export function App() {
           </section>
         </aside>
       </section>
+
+      <footer className="app-footer">
+        <span>
+          Draft reference implementation for the CMS-Aligned Network activity notifications MVP.
+        </span>
+        <a
+          href="https://github.com/jmandel/cms-network-subscriptions-mvp/blob/main/index.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Read the spec draft on GitHub
+        </a>
+      </footer>
     </main>
   );
 }
