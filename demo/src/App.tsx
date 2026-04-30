@@ -952,7 +952,14 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
 
 function compactRecord(value: Record<string, string | string[]> | undefined) {
   if (!value || Object.keys(value).length === 0) return "none";
-  return Object.entries(value)
-    .map(([key, item]) => `${key}: ${Array.isArray(item) ? item.join(", ") : item}`)
-    .join("; ");
+  return (
+    <span className="record-lines">
+      {Object.entries(value).map(([key, item]) => (
+        <span className="record-line" key={key}>
+          <span className="record-key">{key}</span>
+          <span className="record-value">{Array.isArray(item) ? item.join(", ") : item}</span>
+        </span>
+      ))}
+    </span>
+  );
 }

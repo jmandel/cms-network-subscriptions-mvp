@@ -967,6 +967,30 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.record-lines {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.record-line {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+  min-width: 0;
+}
+
+.record-key {
+  color: #52616d;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.record-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .action-list,
 .source-health,
 .mini-list {
