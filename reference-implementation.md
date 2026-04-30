@@ -231,7 +231,7 @@ Traffic:
 1. Empty wake-up webhook
 2. `$events` response with `data-holder-activity-detected`
 3. App decision: `follow-up-search` is the most specific usable hint
-4. `GET /data-holders/:dataHolderId/fhir/Encounter?patient=data-holder-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z&activity-handle=...`
+4. `GET /data-holders/:dataHolderId/fhir/Encounter?patient=data-holder-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`
 
 ### 5. Specific Read Hint
 

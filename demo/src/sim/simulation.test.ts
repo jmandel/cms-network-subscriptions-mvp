@@ -74,13 +74,14 @@ test("search scenario runs the explicit follow-up search template", () => {
   const eventsPayload = JSON.stringify(eventsResponse?.response?.body);
   expect(eventsPayload).toContain("follow-up-search");
   expect(eventsPayload).toContain("https://valley-clinic.example.org/fhir/Encounter?patient={{patient}}");
+  expect(eventsPayload).not.toContain("{{activity-handle}}");
 
   const query = sim.state.trace.find(
     (event) => event.request?.method === "GET" && event.request.path === "/data-holders/valley/fhir/Encounter",
   );
   expect(query?.request?.query.patient).toBe("data-holder-patient-valley");
   expect(query?.request?.query._lastUpdated).toBe("ge2026-04-29T15:00:00Z");
-  expect(query?.request?.query["activity-handle"]).toMatch(/^ah-[0-9a-z]+$/);
+  expect(query?.request?.query["activity-handle"]).toBeUndefined();
 });
 
 test("missed webhook triggers retained event range retrieval", () => {

@@ -297,7 +297,7 @@ export class NetworkActivitySimulation {
           continue;
         }
         const token = this.ensureSourceToken(source);
-        const path = renderFollowUpPath(source, action.followUpSearch, token.patient, signal.handle?.value);
+        const path = renderFollowUpPath(source, action.followUpSearch, token.patient);
         const response = this.kernel.send({
           from: "client",
           to: "data-holder",
@@ -792,9 +792,10 @@ export class NetworkActivitySimulation {
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
     if (signal.followUpRead?.[0] && signal.dataHolderEndpoint) {
-      const target = resourceFromUrl(signal.followUpRead[0]);
+      const readUrl = signal.followUpRead[0];
+      const target = resourceFromUrl(readUrl);
       if (target) {
-        return { code: "read-data-holder", ...target, url: signal.followUpRead[0] };
+        return { code: "read-data-holder", ...target, url: readUrl };
       }
     }
     if (signal.dataHolderEndpoint && signal.followUpSearch?.[0]) {
@@ -936,13 +937,11 @@ function resourceFromUrl(url: string) {
 }
 
 function followUpSearchTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
-  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}&activity-handle={{activity-handle}}`;
+  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}`;
 }
 
-function renderFollowUpPath(source: SourceRecord, template: string, patient: string, activityHandle?: string) {
-  const rendered = template
-    .replace(/\{\{patient\}\}/g, encodeURIComponent(patient))
-    .replace(/\{\{activity-handle\}\}/g, encodeURIComponent(activityHandle ?? ""));
+function renderFollowUpPath(source: SourceRecord, template: string, patient: string) {
+  const rendered = template.replace(/\{\{patient\}\}/g, encodeURIComponent(patient));
   if (/^https?:\/\//.test(rendered)) {
     const renderedUrl = new URL(rendered);
     const endpointUrl = new URL(source.endpoint);
