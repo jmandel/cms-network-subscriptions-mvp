@@ -3,6 +3,8 @@
 **FHIR Subscriptions Workgroup**
 **Draft for discussion**
 
+Reference simulator: <https://joshuamandel.com/cms-network-subscriptions-mvp/>
+
 ## 1. Purpose
 
 CMS-Aligned Networks need a small way to tell authorized clients that something
