@@ -72,6 +72,7 @@ test("search scenario runs the explicit follow-up search template", () => {
   );
   expect(query?.request?.query.patient).toBe("data-holder-patient-valley");
   expect(query?.request?.query._lastUpdated).toBe("ge2026-04-29T15:00:00Z");
+  expect(query?.request?.query["activity-handle"]).toMatch(/^ah-[0-9a-z]+$/);
 });
 
 test("missed webhook produces a recovery discovery", () => {

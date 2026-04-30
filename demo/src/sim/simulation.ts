@@ -893,7 +893,7 @@ function resourceFromUrl(url: string) {
 }
 
 function followUpSearchTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
-  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}&_activityHandle={{activity-handle}}`;
+  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}&activity-handle={{activity-handle}}`;
 }
 
 function renderFollowUpPath(source: SourceRecord, template: string, patient: string, activityHandle?: string) {
