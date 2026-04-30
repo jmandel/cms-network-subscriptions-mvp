@@ -4,10 +4,8 @@ export type Url = string;
 export type ActivityType =
   | "activity-detected"
   | "care-relationship-detected"
-  | "source-activity-detected"
-  | "source-resource-detected"
-  | "feed-available"
-  | "capability-changed"
+  | "data-holder-activity-detected"
+  | "data-holder-resource-detected"
   | (string & {});
 
 export type ActivityConfidence = "confirmed" | "probable" | "possible";
@@ -20,11 +18,11 @@ export interface NetworkActivitySignal {
   activityType: ActivityType;
   confidence?: ActivityConfidence;
   handle?: OpaqueActivityHandle;
-  source?: SourceHint;
-  targetResource?: TargetResourceHint;
-  sourceQueries?: SourceQueryHint[];
-  feedTopic?: Url;
-  activityWindow?: TimeWindow;
+  dataHolderOrganization?: OrganizationHint;
+  dataHolderEndpoint?: Url;
+  followUpRead?: UrlTemplate[];
+  followUpSearch?: UrlTemplate[];
+  followUpSubscribe?: Url[];
   resourceTypes?: FhirResourceType[];
   extensions?: Record<string, unknown>;
 }
@@ -40,21 +38,7 @@ export interface OpaqueActivityHandle {
   expiresAt?: FhirInstant;
 }
 
-export interface SourceHint {
-  organization?: OrganizationHint;
-  sourceEndpoint?: Url;
-}
-
-export interface TargetResourceHint {
-  reference: string;
-  type?: FhirResourceType;
-  url?: Url;
-  display?: string;
-}
-
-export interface SourceQueryHint {
-  urlTemplate: string;
-}
+export type UrlTemplate = string;
 
 export interface OrganizationHint {
   identifiers: Identifier[];
@@ -64,11 +48,6 @@ export interface OrganizationHint {
 export interface Identifier {
   system: Url;
   value: string;
-}
-
-export interface TimeWindow {
-  start?: FhirInstant;
-  end?: FhirInstant;
 }
 
 export type FhirResourceType =

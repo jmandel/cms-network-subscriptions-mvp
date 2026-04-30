@@ -37,9 +37,9 @@ type TrafficItem =
 
 const disclosureOptions: Array<{ value: DisclosurePolicy; label: string }> = [
   { value: "opaque", label: "Opaque" },
-  { value: "source-org", label: "Org" },
-  { value: "source-endpoint", label: "Source" },
-  { value: "feed-capable", label: "Feed topic" },
+  { value: "data-holder-organization", label: "Org" },
+  { value: "data-holder-endpoint", label: "Endpoint" },
+  { value: "follow-up-subscribe", label: "Subscribe" },
 ];
 
 const scenarios: Array<{
@@ -62,39 +62,39 @@ const scenarios: Array<{
     id: "opaque-rls",
     label: "Opaque Activity",
     short: "Signal only, then RLS.",
-    lesson: "A network can say that something changed without naming the source.",
+    lesson: "A network can say that something changed without naming the data holder.",
     steps: ["Opaque activity webhook", "Client passes handle to discovery", "RLS down-scopes fan-out"],
     icon: Search,
   },
   {
     id: "subscription-hinted",
-    label: "Feed Topic Hint",
+    label: "Subscribe Hint",
     short: "Use the hinted FHIR endpoint.",
     lesson: "When policy allows, the notification can disclose one data-holder FHIR endpoint and the Patient Data Feed topic it supports.",
-    steps: ["Activity signal includes FHIR endpoint and topic", "Client authorizes at source", "Client creates Patient Data Feed subscription"],
+    steps: ["Activity signal includes FHIR endpoint and topic", "Client authorizes at endpoint", "Client creates Patient Data Feed subscription"],
     icon: Bell,
   },
   {
-    id: "known-source",
-    label: "Known Source",
+    id: "known-data-holder",
+    label: "Known Data Holder",
     short: "Run a hinted query.",
-    lesson: "If the notification includes an explicit source query, the client can run that query after source authorization.",
-    steps: ["Signal includes source query template", "Client authorizes at source", "Client runs the hinted Encounter query"],
+    lesson: "If the notification includes a follow-up search URL, the client can run that search after data-holder authorization.",
+    steps: ["Signal includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
     icon: Server,
   },
   {
-    id: "resource-hinted",
-    label: "Resource Hint",
+    id: "read-hinted",
+    label: "Read Hint",
     short: "Read one hinted resource.",
-    lesson: "If policy allows a specific target URL, the client can authorize at the source and read that resource directly.",
-    steps: ["Signal includes target-url", "Client authorizes at source", "Client reads that Encounter"],
+    lesson: "If policy allows a specific follow-up read URL, the client can authorize at the data holder and read that resource directly.",
+    steps: ["Signal includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
     icon: Database,
   },
   {
     id: "patient-data-feed",
     label: "Patient Data Feed",
     short: "Ongoing EHR feed.",
-    lesson: "Network activity helps discover the source; the data-holder FHIR endpoint handles ongoing Patient Data Feed notifications.",
+    lesson: "Network activity helps discover the data holder; the data-holder FHIR endpoint handles ongoing Patient Data Feed notifications.",
     steps: ["Create Patient Data Feed subscription", "FHIR endpoint emits Encounter notification", "Client reads the referenced Encounter"],
     icon: Radio,
   },
@@ -107,11 +107,11 @@ const scenarios: Array<{
     icon: Eye,
   },
   {
-    id: "sensitive-source",
+    id: "sensitive-data-holder",
     label: "Sensitive Policy",
     short: "Opaque by policy.",
-    lesson: "Sensitive sources can force opaque notifications while still permitting handle-scoped follow-up.",
-    steps: ["Network withholds source detail", "Client resolves through network", "Policy limits what comes back"],
+    lesson: "Sensitive data holders can force opaque notifications while still permitting handle-scoped follow-up.",
+    steps: ["Network withholds data-holder detail", "Client resolves through network", "Policy limits what comes back"],
     icon: Shield,
   },
 ];
@@ -120,14 +120,14 @@ const actorItems = [
   { id: "client", label: "Client App", icon: Activity },
   { id: "network", label: "Network Activity", icon: Network },
   { id: "rls", label: "RLS / Query", icon: Search },
-  { id: "source", label: "Data Holder FHIR", icon: Database },
+  { id: "data-holder", label: "Data Holder FHIR", icon: Database },
 ];
 
 const actorLabels: Record<string, string> = {
   client: "Client App",
   network: "Network Activity",
   rls: "RLS / Query",
-  source: "Data Holder FHIR",
+  "data-holder": "Data Holder FHIR",
   simulation: "Simulation",
 };
 
@@ -529,12 +529,11 @@ function SignalCard({ signal }: { signal: NonNullable<ReturnType<typeof networkS
           ["confidence", signal.confidence ?? "not supplied"],
           ["patient", signal.patient.id],
           ["handle", signal.handle?.value ?? "none"],
-          ["source", signal.source?.organization?.name ?? "not disclosed"],
-          ["FHIR endpoint", signal.source?.sourceEndpoint ?? "not disclosed"],
-          ["feed topic", signal.feedTopic ?? "not supplied"],
-          ["source query", signal.sourceQueries?.[0]?.urlTemplate ?? "not supplied"],
-          ["target", signal.targetResource?.reference ?? "not disclosed"],
-          ["target URL", signal.targetResource?.url ?? "not supplied"],
+          ["data holder", signal.dataHolderOrganization?.name ?? "not disclosed"],
+          ["FHIR endpoint", signal.dataHolderEndpoint ?? "not disclosed"],
+          ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
+          ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
+          ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
         ]}
       />
     </section>
@@ -550,7 +549,8 @@ function ActionCard({ action }: { action: NonNullable<ReturnType<typeof actionFr
           ["action", action.code],
           ["resource", action.resourceType && action.resourceId ? `${action.resourceType}/${action.resourceId}` : "none"],
           ["url", action.url ?? "none"],
-          ["source query", action.sourceQuery ?? "none"],
+          ["follow-up search", action.followUpSearch ?? "none"],
+          ["follow-up subscribe", action.followUpSubscribe ?? "none"],
         ]}
       />
     </section>
@@ -568,12 +568,12 @@ function AppStatePanel({ state }: { state: Snapshot["state"] }) {
           ["patient", state.app.patientId],
           ["network sub", state.app.networkSubscriptionId ?? "none"],
           ["last event", String(state.app.lastNetworkEventNumber)],
-          ["known sources", String(knownSources.length)],
+          ["known data holders", String(knownSources.length)],
           ["data feed subs", String(feedSubscriptions.length)],
         ]}
       />
       <MiniList
-        empty="No known sources"
+        empty="No known data holders"
         items={knownSources.map((source) => `${source.name} (${source.discoveredBy})`)}
       />
       <MiniList
@@ -860,16 +860,17 @@ function actionFromTrace(event: TraceEvent) {
         resourceType?: string;
         resourceId?: string;
         url?: string;
-        sourceQuery?: string;
+        followUpSearch?: string;
+        followUpSubscribe?: string;
       }
     : null;
 }
 
 function hintLevelFromSignal(signal: NetworkActivitySignal) {
-  if (signal.targetResource) return "resource hinted";
-  if (signal.feedTopic && signal.source?.sourceEndpoint) return "subscription hinted";
-  if (signal.sourceQueries?.length || signal.source?.sourceEndpoint) return "query hinted";
-  if (signal.source?.organization) return "source hinted";
+  if (signal.followUpRead?.length) return "read hinted";
+  if (signal.followUpSearch?.length) return "search hinted";
+  if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription hinted";
+  if (signal.dataHolderOrganization) return "organization hinted";
   return "opaque";
 }
 
@@ -878,11 +879,10 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
     return [
       ["FHIR focus", "Parameters"],
       ["topic", signal.topic],
-      ["source query", signal.sourceQueries?.[0]?.urlTemplate ?? "not supplied"],
-      ["target URL", signal.targetResource?.url ?? "not supplied"],
-      ["feed topic", signal.feedTopic ?? "not supplied"],
+      ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
+      ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
+      ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
       ["resource types", signal.resourceTypes?.join(", ") || "not supplied"],
-      ["window", signal.activityWindow?.start ?? "not supplied"],
     ];
   }
 
@@ -906,12 +906,12 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
       ["channel", body.channel?.endpoint ?? "none"],
     ];
   }
-  if (body.sources) {
+  if (body.dataHolders) {
     return [
       ["mode", body.mode ?? "discovery"],
       ["fan out", String(body.fanOut ?? "unknown")],
       ["handle used", body.handleUsed ? "yes" : "no"],
-      ["sources", body.sources.map((source: any) => source.organization?.name ?? source.id).join(", ") || "none"],
+      ["data holders", body.dataHolders.map((source: any) => source.dataHolderOrganization?.name ?? source.id).join(", ") || "none"],
       ["withheld", String(body.withheld ?? 0)],
     ];
   }
@@ -929,7 +929,7 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
     return [
       ["resource", `${body.resourceType}/${body.id}`],
       ["status", body.status ?? "none"],
-      ["source", body.serviceProvider?.display ?? "none"],
+      ["data holder", body.serviceProvider?.display ?? "none"],
       ["last updated", body.meta?.lastUpdated ?? "none"],
     ];
   }

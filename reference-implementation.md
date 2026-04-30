@@ -36,12 +36,12 @@ Primary regions:
 
 | Region | Purpose |
 |--------|---------|
-| Scenario controls | Choose patient, network policy, source capabilities, and trigger high-level events. |
+| Scenario controls | Choose patient, network policy, data-holder capabilities, and trigger high-level events. |
 | Actor map | Show Client App, Network Activity Endpoint, RLS/Network Query Service, and Data-Holder FHIR Endpoint. |
 | Traffic log | Chronological HTTP-like requests, webhook deliveries, responses, and internal events. |
 | Message inspector | Pretty and raw views for selected FHIR bundles, Parameters, requests, and responses. |
-| App state | Known sources, source subscriptions, token contexts, last event number, and pending follow-up work. |
-| Network state | Watched patients, retained activity handles, source registry, disclosure policy, and event counters. |
+| App state | Known data holders, Patient Data Feed subscriptions, token contexts, last event number, and pending follow-up work. |
+| Network state | Watched patients, retained activity handles, data-holder registry, disclosure policy, and event counters. |
 
 The UI should be quiet and dense: tables, segmented controls, tabs, and inspectors. Avoid marketing copy. The user should learn by running flows and inspecting messages.
 
@@ -111,8 +111,8 @@ Responsibilities:
 - Create the `network-activity` subscription.
 - Receive webhook notifications.
 - Decode the `Parameters` focus resource into the logical TypeScript model.
-- Follow the most specific usable hint: `target-url`, then explicit `source-query`, then Patient Data Feed subscription, then RLS/discovery.
-- Track known sources and Patient Data Feed subscriptions.
+- Follow the most specific usable hint: `follow-up-read`, then `follow-up-search`, then `follow-up-subscribe`, then RLS/discovery.
+- Track known data holders and Patient Data Feed subscriptions.
 - Detect duplicate activity ids and event-number gaps.
 
 Routes:
@@ -120,7 +120,7 @@ Routes:
 | Route | Meaning |
 |-------|---------|
 | `POST /app/network-activity` | Receive network activity webhook. |
-| `POST /app/patient-data-feed/:sourceId` | Receive Patient Data Feed webhook from a data-holder FHIR endpoint. |
+| `POST /app/patient-data-feed/:dataHolderId` | Receive Patient Data Feed webhook from a data-holder FHIR endpoint. |
 
 ### Network Activity Endpoint
 
@@ -129,8 +129,8 @@ Responsibilities:
 - Issue mock network tokens with network-scoped patient context.
 - Accept `Subscription` creates for the `network-activity` topic.
 - Convert high-level simulated events into activity notification bundles.
-- Apply disclosure policy: opaque, source-hinted, query-hinted, resource-hinted, or subscription-hinted.
-- Emit explicit follow-up hints such as `source-query`, `target-url`, and `feed-topic` when disclosure policy permits.
+- Apply disclosure policy: opaque, organization-hinted, search-hinted, read-hinted, or subscription-hinted.
+- Emit explicit follow-up hints such as `follow-up-read`, `follow-up-search`, and `follow-up-subscribe` when disclosure policy permits.
 - Mint and retain opaque activity handles.
 
 Routes:
@@ -147,9 +147,9 @@ Routes:
 
 Responsibilities:
 
-- Return broad or narrowed source discovery results.
+- Return broad or narrowed data-holder discovery results.
 - Demonstrate fan-out reduction when an `activity-handle` is supplied.
-- Return empty results when the signal is possible but no source is currently disclosed.
+- Return empty results when the signal is possible but no data holder is currently disclosed.
 
 Routes:
 
@@ -162,24 +162,24 @@ Routes:
 
 Responsibilities:
 
-- Issue mock source tokens with source-scoped patient context.
-- Respond to explicit source query templates for `Encounter` and `Appointment`.
+- Issue mock data-holder tokens with data-holder-specific patient context.
+- Respond to explicit follow-up search templates for `Encounter` and `Appointment`.
 - Accept Patient Data Feed subscriptions when the endpoint supports the topic.
 - Deliver id-only notifications for active Patient Data Feed subscriptions.
-- Enforce source authorization independently of network notifications.
+- Enforce data-holder authorization independently of network notifications.
 
 Routes:
 
 | Route | Meaning |
 |-------|---------|
-| `POST /sources/:sourceId/token` | Mock source token response. |
-| `GET /sources/:sourceId/fhir/Encounter?patient={patient}&_lastUpdated=ge...` | Query Encounters using the explicit hinted search URL. |
-| `GET /sources/:sourceId/fhir/Encounter/:id` | Read one Encounter by id. |
-| `GET /sources/:sourceId/fhir/Appointment` | Query Appointments by patient and `_lastUpdated`. |
-| `GET /sources/:sourceId/fhir/Appointment/:id` | Read one Appointment by id. |
-| `POST /sources/:sourceId/fhir/Subscription` | Create Patient Data Feed subscription. |
-| `GET /sources/:sourceId/fhir/Subscription/:id` | Read Patient Data Feed subscription. |
-| `POST /sources/:sourceId/internal/events` | Simulation-only source event injection. |
+| `POST /data-holders/:dataHolderId/token` | Mock data-holder token response. |
+| `GET /data-holders/:dataHolderId/fhir/Encounter?patient=:patient&_lastUpdated=ge...` | Query Encounters using the explicit hinted search URL. |
+| `GET /data-holders/:dataHolderId/fhir/Encounter/:id` | Read one Encounter by id. |
+| `GET /data-holders/:dataHolderId/fhir/Appointment` | Query Appointments by patient and `_lastUpdated`. |
+| `GET /data-holders/:dataHolderId/fhir/Appointment/:id` | Read one Appointment by id. |
+| `POST /data-holders/:dataHolderId/fhir/Subscription` | Create Patient Data Feed subscription. |
+| `GET /data-holders/:dataHolderId/fhir/Subscription/:id` | Read Patient Data Feed subscription. |
+| `POST /data-holders/:dataHolderId/internal/events` | Simulation-only data-holder event injection. |
 
 ## Scenarios
 
@@ -197,46 +197,46 @@ Traffic:
 
 ### 2. Opaque Activity, Narrowed RLS
 
-The network sees an event but does not disclose the source. It sends an opaque activity notification with a handle. The client calls RLS with the handle. The network returns one source instead of a broad fan-out result.
+The network sees an event but does not disclose the data holder. It sends an opaque activity notification with a handle. The client calls RLS with the handle. The network returns one data holder instead of a broad fan-out result.
 
 Traffic:
 
 1. Simulation event injection
 2. Webhook `POST /app/network-activity`
-3. App decision: no source hint, run rediscovery
+3. App decision: no data-holder hint, run rediscovery
 4. `POST /network/rls/search` with `activity-handle`
-5. RLS response with narrowed source list
+5. RLS response with narrowed data-holder list
 
-### 3. Subscription-Hinted New Source
+### 3. Subscription-Hinted New Data Holder
 
 The network can disclose a data-holder FHIR endpoint that supports the Patient Data Feed topic. The client skips broad RLS, authorizes at that endpoint, and creates a Patient Data Feed subscription there.
 
 Traffic:
 
-1. Webhook with a `source-endpoint` and `feed-topic` notification
-2. `POST /sources/:sourceId/token`
-3. `POST /sources/:sourceId/fhir/Subscription`
-4. App state shows source subscription active
+1. Webhook with a `data-holder-endpoint` and `follow-up-subscribe` notification
+2. `POST /data-holders/:dataHolderId/token`
+3. `POST /data-holders/:dataHolderId/fhir/Subscription`
+4. App state shows Patient Data Feed subscription active
 
-### 4. Known Source Activity
+### 4. Known Data Holder Activity
 
-The network identifies a source. The client follows the source hint and runs a narrow query instead of rediscovery.
-
-Traffic:
-
-1. Webhook with `source-activity-detected`
-2. App decision: `source-query` is the most specific usable hint
-3. `GET /sources/:sourceId/fhir/Encounter?patient=source-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`
-
-### 5. Specific Resource Hint
-
-The network can disclose a data-holder FHIR endpoint and specific Encounter read URL. The client authorizes at the source and reads that resource directly.
+The network identifies a data holder. The client follows the search hint and runs a narrow query instead of rediscovery.
 
 Traffic:
 
-1. Webhook with `target-resource` and `target-url`
-2. `POST /sources/:sourceId/token`
-3. `GET /sources/:sourceId/fhir/Encounter/:id`
+1. Webhook with `data-holder-activity-detected`
+2. App decision: `follow-up-search` is the most specific usable hint
+3. `GET /data-holders/:dataHolderId/fhir/Encounter?patient=data-holder-patient-valley&_lastUpdated=ge2026-04-29T15%3A00%3A00Z`
+
+### 5. Specific Read Hint
+
+The network can disclose a data-holder FHIR endpoint and specific Encounter read URL. The client authorizes at the data holder and reads that resource directly.
+
+Traffic:
+
+1. Webhook with `follow-up-read`
+2. `POST /data-holders/:dataHolderId/token`
+3. `GET /data-holders/:dataHolderId/fhir/Encounter/:id`
 
 ### 6. Patient Data Feed Event
 
@@ -244,9 +244,9 @@ A Patient Data Feed subscription at the data-holder FHIR endpoint delivers an id
 
 Traffic:
 
-1. Simulation source event injection
-2. Webhook `POST /app/patient-data-feed/:sourceId`
-3. `GET /sources/:sourceId/fhir/Encounter/:id`
+1. Simulation data-holder event injection
+2. Webhook `POST /app/patient-data-feed/:dataHolderId`
+3. `GET /data-holders/:dataHolderId/fhir/Encounter/:id`
 
 ### 7. Missed Network Activity
 
@@ -259,13 +259,13 @@ Traffic:
 3. App decision: recovery
 4. `POST /network/rls/search`
 
-### 8. Sensitive Source Policy
+### 8. Sensitive Data Holder Policy
 
-The network observes an event at a sensitive source. Policy only allows an opaque signal. The client can follow up, but the dashboard shows that source details were intentionally withheld.
+The network observes an event at a sensitive data holder. Policy only allows an opaque signal. The client can follow up, but the dashboard shows that data-holder details were intentionally withheld.
 
 Traffic:
 
-1. Webhook with no source, resource, or endpoint hints
+1. Webhook with no data-holder or follow-up hints
 2. `POST /network/rls/search` with `activity-handle`
 3. Response may be empty, delayed, or narrowed depending on policy controls
 
@@ -274,15 +274,15 @@ Traffic:
 Minimum fixture set:
 
 - One patient with network id `network-patient-123`.
-- Three sources:
-  - Valley Clinic: general outpatient, supports source query and Patient Data Feed.
-  - Mercy Hospital Phoenix: hospital, data-holder FHIR endpoint hosted by network on the source's behalf.
-  - Northside Behavioral Health: sensitive source, source details withheld by default.
+- Three data holders:
+  - Valley Clinic: general outpatient, supports follow-up search and Patient Data Feed.
+  - Mercy Hospital Phoenix: hospital, data-holder FHIR endpoint hosted by network on the data holder's behalf.
+  - Northside Behavioral Health: sensitive data holder, details withheld by default.
 - Four network disclosure policies:
   - Opaque only.
-  - Source organization allowed.
-  - Source endpoint allowed.
-  - Source endpoint plus Patient Data Feed topic allowed.
+  - Data-holder organization allowed.
+  - Data-holder endpoint allowed.
+  - Data-holder endpoint plus Patient Data Feed topic allowed.
 
 ## UI Interactions
 
@@ -291,7 +291,7 @@ Controls:
 - Start bootstrap.
 - Trigger selected scenario.
 - Toggle network disclosure policy.
-- Toggle source support for Patient Data Feed.
+- Toggle data-holder support for Patient Data Feed.
 - Drop next webhook.
 - Clear trace.
 - Reset simulation.
@@ -307,9 +307,9 @@ Inspectors:
 ## Acceptance Criteria
 
 1. A user can run the bootstrap flow and see every internal HTTP-like message.
-2. A user can trigger opaque, source-hinted, query-hinted, resource-hinted, and subscription-hinted activity notifications.
+2. A user can trigger opaque, organization-hinted, search-hinted, read-hinted, and subscription-hinted activity notifications.
 3. The traffic log shows webhook delivery and all follow-up requests with method, path, query, headers, body, status, and response body.
-4. The app state shows known sources, source subscriptions, last event number, and deduplicated activity ids.
+4. The app state shows known data holders, Patient Data Feed subscriptions, last event number, and deduplicated activity ids.
 5. Opaque handles are visible as opaque strings and can be traced through follow-up calls.
 6. The same simulated event can produce different notifications when the network disclosure policy changes.
 7. No code path uses real network requests for simulated actors.

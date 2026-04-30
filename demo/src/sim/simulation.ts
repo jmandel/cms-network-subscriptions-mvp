@@ -1,4 +1,4 @@
-import type { NetworkActivitySignal, TargetResourceHint } from "../../../schema/network-activity";
+import type { NetworkActivitySignal } from "../../../schema/network-activity";
 import {
   NETWORK_ACTIVITY_TOPIC,
   PATIENT_DATA_FEED_TOPIC,
@@ -47,15 +47,15 @@ function opaqueToken(prefix: string, eventNumber: number) {
   return `${prefix}-${mixed.toString(36).padStart(7, "0")}`;
 }
 
-type ActivityHintLevel = "opaque" | "source-hinted" | "query-hinted" | "resource-hinted" | "subscription-hinted";
+type ActivityHintLevel = "opaque" | "organization-hinted" | "search-hinted" | "read-hinted" | "subscription-hinted";
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
 function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
-  if (signal.targetResource) return "resource-hinted";
-  if (signal.feedTopic && signal.source?.sourceEndpoint) return "subscription-hinted";
-  if (signal.sourceQueries?.length || signal.source?.sourceEndpoint) return "query-hinted";
-  if (signal.source?.organization) return "source-hinted";
+  if (signal.followUpRead?.length) return "read-hinted";
+  if (signal.followUpSearch?.length) return "search-hinted";
+  if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription-hinted";
+  if (signal.dataHolderOrganization) return "organization-hinted";
   return "opaque";
 }
 
@@ -87,7 +87,7 @@ export class NetworkActivitySimulation {
     this.state.sources[sourceId].feedEnabled = enabled;
     this.kernel.trace({
       kind: "state-change",
-      actor: "source",
+      actor: "data-holder",
       summary: `${this.state.sources[sourceId].name} feed ${enabled ? "enabled" : "disabled"}`,
       details: { sourceId, enabled },
     });
@@ -152,32 +152,28 @@ export class NetworkActivitySimulation {
     }
 
     if (id === "subscription-hinted") {
-      this.setDisclosurePolicy("feed-capable");
+      this.setDisclosurePolicy("follow-up-subscribe");
       this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
       this.processPendingActions();
     }
 
-    if (id === "known-source") {
-      this.setDisclosurePolicy("source-endpoint");
+    if (id === "known-data-holder") {
+      this.setDisclosurePolicy("data-holder-endpoint");
       this.learnSource(this.state.sources.valley, "seeded app state");
-      this.injectNetworkEvent("valley", "source-activity-detected", "confirmed");
+      this.injectNetworkEvent("valley", "data-holder-activity-detected", "confirmed");
       this.processPendingActions();
     }
 
-    if (id === "resource-hinted") {
-      this.setDisclosurePolicy("source-endpoint");
-      this.injectNetworkEvent("mercy", "source-resource-detected", "confirmed", {
-        reference: "Encounter/enc-mercy-1",
-        type: "Encounter",
-        url: "https://network.example.org/fhir/sources/mercy/Encounter/enc-mercy-1",
-      });
+    if (id === "read-hinted") {
+      this.setDisclosurePolicy("data-holder-endpoint");
+      this.injectNetworkEvent("mercy", "data-holder-resource-detected", "confirmed", "https://network.example.org/fhir/data-holders/mercy/Encounter/enc-mercy-1");
       this.processPendingActions();
     }
 
     if (id === "patient-data-feed") {
       if (!this.state.app.feedSubscriptions.valley) {
-        this.setDisclosurePolicy("feed-capable");
-        this.injectNetworkEvent("valley", "feed-available", "confirmed");
+        this.setDisclosurePolicy("follow-up-subscribe");
+        this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
         this.processPendingActions();
       }
       this.injectSourceEvent("valley", "Encounter", "enc-valley-1");
@@ -193,8 +189,8 @@ export class NetworkActivitySimulation {
       this.processPendingActions();
     }
 
-    if (id === "sensitive-source") {
-      this.setDisclosurePolicy("feed-capable");
+    if (id === "sensitive-data-holder") {
+      this.setDisclosurePolicy("follow-up-subscribe");
       this.injectNetworkEvent("northside", "activity-detected", "possible");
       this.processPendingActions();
     }
@@ -204,7 +200,7 @@ export class NetworkActivitySimulation {
     sourceId: string,
     activityType = "activity-detected",
     confidence: NetworkActivitySignal["confidence"] = "confirmed",
-    targetResource?: TargetResourceHint,
+    followUpRead?: string,
   ) {
     this.kernel.send({
       from: "simulation",
@@ -212,7 +208,7 @@ export class NetworkActivitySimulation {
       method: "POST",
       path: "/network/internal/events",
       headers: { "content-type": "application/json" },
-      body: { sourceId, activityType, confidence, targetResource },
+      body: { sourceId, activityType, confidence, followUpRead },
       summary: `Simulate ${activityType} at ${this.state.sources[sourceId].name}`,
     });
   }
@@ -220,9 +216,9 @@ export class NetworkActivitySimulation {
   injectSourceEvent(sourceId: string, resourceType: "Encounter" | "Appointment", id: string) {
     this.kernel.send({
       from: "simulation",
-      to: "source",
+      to: "data-holder",
       method: "POST",
-      path: `/sources/${sourceId}/internal/events`,
+      path: `/data-holders/${sourceId}/internal/events`,
       headers: { "content-type": "application/json" },
       body: { resourceType, id },
       summary: `Simulate Patient Data Feed ${resourceType} at ${this.state.sources[sourceId].name}`,
@@ -244,25 +240,23 @@ export class NetworkActivitySimulation {
         details: { signal, action },
       });
 
-      if (action.code === "read-source") {
+      if (action.code === "read-data-holder") {
         const source = this.sourceFromSignal(signal);
         if (!source || !action.resourceType || !action.resourceId) {
-          this.traceDecision("No specific source resource available for read-source", { signal, action });
+          this.traceDecision("No specific data-holder resource available for read-data-holder", { signal, action });
           continue;
         }
         const token = this.ensureSourceToken(source);
         const response = this.kernel.send({
           from: "client",
-          to: "source",
+          to: "data-holder",
           method: "GET",
-          path: `/sources/${source.id}/fhir/${action.resourceType}/${action.resourceId}`,
+          path: `/data-holders/${source.id}/fhir/${action.resourceType}/${action.resourceId}`,
           headers: { authorization: `Bearer ${token.token}` },
           correlationId: signal.activityId,
-          summary: action.url
-            ? `Read hinted resource URL`
-            : `Read hinted ${action.resourceType}/${action.resourceId}`,
+          summary: `Run follow-up-read`,
         });
-        this.learnSource(source, "resource hint");
+        this.learnSource(source, "follow-up-read");
         this.kernel.trace({
           kind: "state-change",
           actor: "client",
@@ -306,45 +300,45 @@ export class NetworkActivitySimulation {
         this.learnSourcesFromResponse(response, "network query");
       }
 
-      if (action.code === "query-source") {
+      if (action.code === "search-data-holder") {
         const source = this.sourceFromSignal(signal);
-        if (!source || !action.sourceQuery) {
-          this.traceDecision("No explicit source query available for query-source", { signal, action });
+        if (!source || !action.followUpSearch) {
+          this.traceDecision("No explicit follow-up-search available", { signal, action });
           continue;
         }
         const token = this.ensureSourceToken(source);
-        const path = renderSourceQueryPath(source, action.sourceQuery, token.patient);
+        const path = renderFollowUpPath(source, action.followUpSearch, token.patient, signal.handle?.value);
         const response = this.kernel.send({
           from: "client",
-          to: "source",
+          to: "data-holder",
           method: "GET",
           path,
           headers: { authorization: `Bearer ${token.token}` },
           correlationId: signal.activityId,
-          summary: `Run hinted source query`,
+          summary: `Run follow-up-search`,
         });
-        this.learnSource(source, "source query");
+        this.learnSource(source, "follow-up-search");
         this.kernel.trace({
           kind: "state-change",
           actor: "client",
-          summary: `Client received ${bundleCount(response.body)} source resources`,
+          summary: `Client received ${bundleCount(response.body)} data-holder resources`,
           details: response.body,
           correlationId: signal.activityId,
         });
       }
 
-      if (action.code === "subscribe-source") {
+      if (action.code === "subscribe-data-holder") {
         const source = this.sourceFromSignal(signal);
         if (!source) {
-          this.traceDecision("No data-holder FHIR endpoint available for subscribe-source", { signal });
+          this.traceDecision("No data-holder FHIR endpoint available for subscribe-data-holder", { signal });
           continue;
         }
         const token = this.ensureSourceToken(source);
         const response = this.kernel.send({
           from: "client",
-          to: "source",
+          to: "data-holder",
           method: "POST",
-          path: `/sources/${source.id}/fhir/Subscription`,
+          path: `/data-holders/${source.id}/fhir/Subscription`,
           headers: {
             authorization: `Bearer ${token.token}`,
             "content-type": "application/fhir+json",
@@ -361,7 +355,7 @@ export class NetworkActivitySimulation {
           endpoint: source.endpoint,
           status: body.status,
         };
-        this.learnSource(source, "Patient Data Feed subscription");
+        this.learnSource(source, "follow-up-subscribe");
       }
     }
   }
@@ -376,9 +370,9 @@ export class NetworkActivitySimulation {
       const token = this.ensureSourceToken(source);
       const response = this.kernel.send({
         from: "client",
-        to: "source",
+        to: "data-holder",
         method: "GET",
-        path: `/sources/${source.id}/fhir/${read.resourceType}/${read.id}`,
+        path: `/data-holders/${source.id}/fhir/${read.resourceType}/${read.id}`,
         headers: { authorization: `Bearer ${token.token}` },
         correlationId: read.correlationId,
         summary: `Read ${read.resourceType}/${read.id}`,
@@ -450,7 +444,7 @@ export class NetworkActivitySimulation {
           sourceId: string;
           activityType: string;
           confidence: NetworkActivitySignal["confidence"];
-          targetResource?: TargetResourceHint;
+          followUpRead?: string;
         };
         const source = context.state.sources[body.sourceId];
         context.state.network.eventCounter += 1;
@@ -461,7 +455,7 @@ export class NetworkActivitySimulation {
           patientId: PATIENT_ID,
           createdAt: new Date().toISOString(),
         };
-        const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence, body.targetResource);
+        const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence, body.followUpRead);
         const bundle = networkActivityBundle(signal, eventNumber, context.state.network.subscriptionId ?? "network-sub-1");
 
         if (context.state.network.dropNextWebhook) {
@@ -563,13 +557,13 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "POST",
-      pathPattern: "/sources/:sourceId/token",
+      pathPattern: "/data-holders/:sourceId/token",
       handle: (request, context) => {
         const source = context.state.sources[pathPart(request.path, 1)];
         return json(request, 200, {
-          access_token: `source-token-${source.id}`,
+          access_token: `data-holder-token-${source.id}`,
           token_type: "bearer",
           expires_in: 3600,
           scope: "patient/Encounter.r patient/Appointment.r system/Subscription.crud",
@@ -579,37 +573,37 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "GET",
-      pathPattern: "/sources/:sourceId/fhir/Encounter",
+      pathPattern: "/data-holders/:sourceId/fhir/Encounter",
       handle: (request, context) => this.queryResources(request, context.state, "Encounter"),
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "GET",
-      pathPattern: "/sources/:sourceId/fhir/Appointment",
+      pathPattern: "/data-holders/:sourceId/fhir/Appointment",
       handle: (request, context) => this.queryResources(request, context.state, "Appointment"),
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "GET",
-      pathPattern: "/sources/:sourceId/fhir/Encounter/:id",
+      pathPattern: "/data-holders/:sourceId/fhir/Encounter/:id",
       handle: (request, context) => this.readResource(request, context.state, "Encounter"),
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "GET",
-      pathPattern: "/sources/:sourceId/fhir/Appointment/:id",
+      pathPattern: "/data-holders/:sourceId/fhir/Appointment/:id",
       handle: (request, context) => this.readResource(request, context.state, "Appointment"),
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "POST",
-      pathPattern: "/sources/:sourceId/fhir/Subscription",
+      pathPattern: "/data-holders/:sourceId/fhir/Subscription",
       handle: (request, context) => {
         const source = context.state.sources[pathPart(request.path, 1)];
         if (!source.feedEnabled) {
@@ -624,9 +618,9 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "GET",
-      pathPattern: "/sources/:sourceId/fhir/Subscription/:id",
+      pathPattern: "/data-holders/:sourceId/fhir/Subscription/:id",
       handle: (request) =>
         json(request, 200, {
           resourceType: "Subscription",
@@ -636,16 +630,16 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
-      actor: "source",
+      actor: "data-holder",
       method: "POST",
-      pathPattern: "/sources/:sourceId/internal/events",
+      pathPattern: "/data-holders/:sourceId/internal/events",
       handle: (request, context) => {
         const source = context.state.sources[pathPart(request.path, 1)];
         const body = request.body as { resourceType: "Encounter" | "Appointment"; id: string };
         const eventNumber = Object.keys(context.state.app.feedSubscriptions).length + context.state.network.eventCounter + 1;
         const bundle = patientDataFeedBundle(source, eventNumber, body.resourceType, body.id);
         context.send({
-          from: "source",
+          from: "data-holder",
           to: "client",
           method: "POST",
           path: `/app/patient-data-feed/${source.id}`,
@@ -694,11 +688,11 @@ export class NetworkActivitySimulation {
     handle: string,
     activityType: string,
     confidence: NetworkActivitySignal["confidence"],
-    targetResource?: TargetResourceHint,
+    followUpRead?: string,
   ): NetworkActivitySignal {
     const effectivePolicy: DisclosurePolicy = source.sensitive ? "opaque" : this.state.network.disclosurePolicy;
-    const requestedTarget = targetResource;
-    const hintLevel = this.hintLevelFor(source, effectivePolicy, requestedTarget);
+    const requestedRead = followUpRead;
+    const hintLevel = this.hintLevelFor(source, effectivePolicy, requestedRead);
     const signal: NetworkActivitySignal = {
       topic: NETWORK_ACTIVITY_TOPIC,
       activityId: opaqueToken("act", eventNumber),
@@ -713,28 +707,21 @@ export class NetworkActivitySimulation {
     };
 
     if (hintLevel !== "opaque") {
-      signal.source = { organization: { identifiers: organization(source).identifier, name: source.name } };
+      signal.dataHolderOrganization = { identifiers: organization(source).identifier, name: source.name };
     }
-    if (hintLevel === "query-hinted" || hintLevel === "resource-hinted" || hintLevel === "subscription-hinted") {
-      signal.source = { ...(signal.source ?? {}), sourceEndpoint: source.endpoint };
+    if (hintLevel === "search-hinted" || hintLevel === "read-hinted" || hintLevel === "subscription-hinted") {
+      signal.dataHolderEndpoint = source.endpoint;
     }
-    if (hintLevel === "resource-hinted" && requestedTarget) {
-      signal.targetResource = {
-        ...requestedTarget,
-        url: requestedTarget.url ?? targetUrlFor(source, requestedTarget),
-      };
-      signal.resourceTypes = requestedTarget.type ? [requestedTarget.type] : undefined;
+    if (hintLevel === "read-hinted" && requestedRead) {
+      signal.followUpRead = [requestedRead];
+      const target = resourceFromUrl(requestedRead);
+      signal.resourceTypes = target?.resourceType ? [target.resourceType] : undefined;
     } else if (hintLevel === "subscription-hinted") {
-      signal.feedTopic = PATIENT_DATA_FEED_TOPIC;
+      signal.followUpSubscribe = [PATIENT_DATA_FEED_TOPIC];
       signal.resourceTypes = ["Encounter", "Appointment"];
-    } else if (hintLevel === "query-hinted") {
+    } else if (hintLevel === "search-hinted") {
       signal.resourceTypes = ["Encounter"];
-      signal.activityWindow = { start: ACTIVITY_WINDOW_START };
-      signal.sourceQueries = [
-        {
-          urlTemplate: sourceQueryTemplate(source, "Encounter", ACTIVITY_WINDOW_START),
-        },
-      ];
+      signal.followUpSearch = [followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START)];
     }
 
     return signal;
@@ -743,37 +730,37 @@ export class NetworkActivitySimulation {
   private hintLevelFor(
     source: SourceRecord,
     policy: DisclosurePolicy,
-    targetResource?: TargetResourceHint,
+    followUpRead?: string,
   ): ActivityHintLevel {
     if (policy === "opaque") {
       return "opaque";
     }
-    if (targetResource) {
-      return "resource-hinted";
+    if (followUpRead) {
+      return "read-hinted";
     }
-    if (policy === "source-org") {
-      return "source-hinted";
+    if (policy === "data-holder-organization") {
+      return "organization-hinted";
     }
-    if (policy === "source-endpoint" || !source.feedEnabled) {
-      return "query-hinted";
+    if (policy === "data-holder-endpoint" || !source.feedEnabled) {
+      return "search-hinted";
     }
     return "subscription-hinted";
   }
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
-    if (signal.targetResource && signal.source?.sourceEndpoint) {
-      const target = resourceFromReference(signal.targetResource.reference, signal.targetResource.type);
+    if (signal.followUpRead?.[0] && signal.dataHolderEndpoint) {
+      const target = resourceFromUrl(signal.followUpRead[0]);
       if (target) {
-        return { code: "read-source", ...target, url: signal.targetResource.url };
+        return { code: "read-data-holder", ...target, url: signal.followUpRead[0] };
       }
     }
-    if (signal.source?.sourceEndpoint && signal.sourceQueries?.[0]?.urlTemplate) {
-      return { code: "query-source", sourceQuery: signal.sourceQueries[0].urlTemplate };
+    if (signal.dataHolderEndpoint && signal.followUpSearch?.[0]) {
+      return { code: "search-data-holder", followUpSearch: signal.followUpSearch[0] };
     }
-    if (signal.feedTopic && signal.source?.sourceEndpoint) {
-      return { code: "subscribe-source" };
+    if (signal.followUpSubscribe?.[0] && signal.dataHolderEndpoint) {
+      return { code: "subscribe-data-holder", followUpSubscribe: signal.followUpSubscribe[0] };
     }
-    if (signal.source?.organization && signal.handle) {
+    if (signal.dataHolderOrganization && signal.handle) {
       return { code: "query-network" };
     }
     return { code: "rediscover" };
@@ -786,9 +773,9 @@ export class NetworkActivitySimulation {
     }
     const response = this.kernel.send({
       from: "client",
-      to: "source",
+      to: "data-holder",
       method: "POST",
-      path: `/sources/${source.id}/token`,
+      path: `/data-holders/${source.id}/token`,
       headers: { "content-type": "application/json" },
       body: { client_id: "health-app", source: source.id },
       summary: `Authorize at ${source.name}`,
@@ -809,8 +796,8 @@ export class NetworkActivitySimulation {
   }
 
   private learnSourcesFromResponse(response: SimResponse, discoveredBy: string) {
-    const body = response.body as { sources?: Array<{ id: string }> };
-    for (const result of body.sources ?? []) {
+    const body = response.body as { dataHolders?: Array<{ id: string }> };
+    for (const result of body.dataHolders ?? []) {
       const source = this.state.sources[result.id];
       if (source) {
         this.learnSource(source, discoveredBy);
@@ -819,12 +806,12 @@ export class NetworkActivitySimulation {
   }
 
   private sourceFromSignal(signal: NetworkActivitySignal) {
-    const endpoint = signal.source?.sourceEndpoint;
+    const endpoint = signal.dataHolderEndpoint;
     const source = Object.values(this.state.sources).find(
       (candidate) =>
         candidate.endpoint === endpoint ||
-        candidate.name === signal.source?.organization?.name ||
-        candidate.npi === signal.source?.organization?.identifiers?.[0]?.value,
+        candidate.name === signal.dataHolderOrganization?.name ||
+        candidate.npi === signal.dataHolderOrganization?.identifiers?.[0]?.value,
     );
     if (source) {
       return source;
@@ -848,11 +835,11 @@ export class NetworkActivitySimulation {
       mode,
       fanOut: mapping ? 1 : Object.values(state.sources).length,
       handleUsed: Boolean(mapping),
-      sources: visible.map((source) => ({
+      dataHolders: visible.map((source) => ({
         id: source.id,
-        organization: organization(source),
-        sourceEndpoint: source.endpoint,
-        feedTopic: source.feedEnabled ? PATIENT_DATA_FEED_TOPIC : undefined,
+        dataHolderOrganization: organization(source),
+        dataHolderEndpoint: source.endpoint,
+        followUpSubscribe: source.feedEnabled ? PATIENT_DATA_FEED_TOPIC : undefined,
       })),
       withheld: candidates.length - visible.length,
     };
@@ -894,29 +881,25 @@ function extractHandle(body: unknown) {
   return parameter?.valueString ? String(parameter.valueString) : undefined;
 }
 
-function resourceFromReference(reference: string, type?: string) {
-  const parts = reference.split("/").filter(Boolean);
+function resourceFromUrl(url: string) {
+  const path = /^https?:\/\//.test(url) ? new URL(url).pathname : url.split("?")[0];
+  const parts = path.split("/").filter(Boolean);
   const resourceId = parts[parts.length - 1];
-  const resourceType = type ?? parts[parts.length - 2];
+  const resourceType = parts[parts.length - 2];
   if (!resourceType || !resourceId) {
     return undefined;
   }
   return { resourceType, resourceId };
 }
 
-function sourceQueryTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
-  return `${source.endpoint}/${resourceType}?patient={patient}&_lastUpdated=ge${encodeURIComponent(since)}`;
+function followUpSearchTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
+  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}&_activityHandle={{activity-handle}}`;
 }
 
-function targetUrlFor(source: SourceRecord, target: TargetResourceHint) {
-  if (/^https?:\/\//.test(target.reference)) {
-    return target.reference;
-  }
-  return `${source.endpoint.replace(/\/$/, "")}/${target.reference.replace(/^\//, "")}`;
-}
-
-function renderSourceQueryPath(source: SourceRecord, template: string, patient: string) {
-  const rendered = template.replace(/\{patient\}/g, encodeURIComponent(patient));
+function renderFollowUpPath(source: SourceRecord, template: string, patient: string, activityHandle?: string) {
+  const rendered = template
+    .replace(/\{\{patient\}\}/g, encodeURIComponent(patient))
+    .replace(/\{\{activity-handle\}\}/g, encodeURIComponent(activityHandle ?? ""));
   if (/^https?:\/\//.test(rendered)) {
     const renderedUrl = new URL(rendered);
     const endpointUrl = new URL(source.endpoint);
@@ -926,9 +909,9 @@ function renderSourceQueryPath(source: SourceRecord, template: string, patient: 
       sourceRelativePath = sourceRelativePath.slice(endpointPath.length);
     }
     sourceRelativePath = sourceRelativePath.replace(/^\//, "");
-    return `/sources/${source.id}/fhir/${sourceRelativePath}${renderedUrl.search}`;
+    return `/data-holders/${source.id}/fhir/${sourceRelativePath}${renderedUrl.search}`;
   }
-  return `/sources/${source.id}/fhir/${rendered.replace(/^\//, "")}`;
+  return `/data-holders/${source.id}/fhir/${rendered.replace(/^\//, "")}`;
 }
 
 function firstQueryValue(value: string | string[] | undefined) {

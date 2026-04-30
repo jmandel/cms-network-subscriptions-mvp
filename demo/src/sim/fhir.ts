@@ -95,47 +95,31 @@ export function activityParameters(signal: NetworkActivitySignal) {
       params.push({ name: "activity-handle-expires", valueInstant: signal.handle.expiresAt });
     }
   }
-  if (signal.source?.organization) {
+  if (signal.dataHolderOrganization) {
     params.push({
-      name: "source-organization",
+      name: "data-holder-organization",
       resource: {
         resourceType: "Organization",
-        identifier: signal.source.organization.identifiers,
-        name: signal.source.organization.name,
+        identifier: signal.dataHolderOrganization.identifiers,
+        name: signal.dataHolderOrganization.name,
       },
     });
   }
-  if (signal.source?.sourceEndpoint) {
-    params.push({ name: "source-endpoint", valueUrl: signal.source.sourceEndpoint });
+  if (signal.dataHolderEndpoint) {
+    params.push({ name: "data-holder-endpoint", valueUrl: signal.dataHolderEndpoint });
   }
-  if (signal.feedTopic) {
-    params.push({ name: "feed-topic", valueUrl: signal.feedTopic });
-  }
-  if (signal.targetResource) {
-    params.push({
-      name: "target-resource",
-      valueReference: {
-        reference: signal.targetResource.reference,
-        type: signal.targetResource.type,
-        display: signal.targetResource.display,
-      },
-    });
-    if (signal.targetResource.url) {
-      params.push({ name: "target-url", valueUrl: signal.targetResource.url });
-    }
-  }
-  signal.sourceQueries?.forEach((query) => {
-    params.push({ name: "source-query", valueString: query.urlTemplate });
+  signal.followUpRead?.forEach((url) => {
+    params.push({ name: "follow-up-read", valueString: url });
+  });
+  signal.followUpSearch?.forEach((url) => {
+    params.push({ name: "follow-up-search", valueString: url });
+  });
+  signal.followUpSubscribe?.forEach((topic) => {
+    params.push({ name: "follow-up-subscribe", valueUrl: topic });
   });
   signal.resourceTypes?.forEach((resourceType) => {
     params.push({ name: "resource-type", valueCode: resourceType });
   });
-  if (signal.activityWindow?.start) {
-    params.push({ name: "activity-window-start", valueInstant: signal.activityWindow.start });
-  }
-  if (signal.activityWindow?.end) {
-    params.push({ name: "activity-window-end", valueInstant: signal.activityWindow.end });
-  }
 
   return {
     resourceType: "Parameters",
@@ -220,17 +204,12 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
   }
 
   const first = (name: string) => values.get(name)?.[0];
-  const sourceOrg = first("source-organization")?.resource;
-  const sourceEndpoint = first("source-endpoint")?.valueUrl;
-  const feedTopic = first("feed-topic")?.valueUrl;
-  const targetResource = first("target-resource")?.valueReference;
-  const targetUrl = first("target-url")?.valueUrl;
-  const start = first("activity-window-start")?.valueInstant;
-  const end = first("activity-window-end")?.valueInstant;
+  const dataHolderOrg = first("data-holder-organization")?.resource;
+  const dataHolderEndpoint = first("data-holder-endpoint")?.valueUrl;
   const handle = first("activity-handle")?.valueString;
-  const sourceQueries = (values.get("source-query") ?? []).map((item) => ({
-    urlTemplate: item.valueString,
-  }));
+  const followUpRead = (values.get("follow-up-read") ?? []).map((item) => item.valueString);
+  const followUpSearch = (values.get("follow-up-search") ?? []).map((item) => item.valueString);
+  const followUpSubscribe = (values.get("follow-up-subscribe") ?? []).map((item) => item.valueUrl);
 
   return {
     topic: NETWORK_ACTIVITY_TOPIC,
@@ -245,29 +224,16 @@ export function parseNetworkActivityBundle(bundle: any): NetworkActivitySignal |
           expiresAt: first("activity-handle-expires")?.valueInstant,
         }
       : undefined,
-    source:
-      sourceOrg || sourceEndpoint
-        ? {
-            organization: sourceOrg
-              ? {
-                  identifiers: sourceOrg.identifier ?? [],
-                  name: sourceOrg.name,
-                }
-              : undefined,
-            sourceEndpoint,
-          }
-        : undefined,
-    targetResource: targetResource
+    dataHolderOrganization: dataHolderOrg
       ? {
-          reference: targetResource.reference,
-          type: targetResource.type,
-          url: targetUrl,
-          display: targetResource.display,
+          identifiers: dataHolderOrg.identifier ?? [],
+          name: dataHolderOrg.name,
         }
       : undefined,
-    sourceQueries,
-    feedTopic,
-    activityWindow: start || end ? { start, end } : undefined,
+    dataHolderEndpoint,
+    followUpRead,
+    followUpSearch,
+    followUpSubscribe,
     resourceTypes: (values.get("resource-type") ?? []).map((item) => item.valueCode),
   };
 }

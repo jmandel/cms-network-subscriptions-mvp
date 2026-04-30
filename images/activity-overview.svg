@@ -33,7 +33,7 @@
 
   <rect x="785" y="145" width="235" height="185" class="box"/>
   <text x="902" y="183" text-anchor="middle" class="label">Data-holder FHIR server</text>
-  <text x="902" y="207" text-anchor="middle" class="small">represents a source organization</text>
+  <text x="902" y="207" text-anchor="middle" class="small">represents a data-holder org</text>
   <line x1="805" y1="230" x2="1000" y2="230" class="divider"/>
   <text x="902" y="260" text-anchor="middle" class="small">query or read once</text>
   <text x="902" y="284" text-anchor="middle" class="small">poll if needed</text>
@@ -55,14 +55,14 @@
 
   <path d="M635 373 C700 373 715 260 785 260" class="dash"/>
   <rect x="666" y="339" width="142" height="22" class="tag-bg"/>
-  <text x="674" y="356" class="small">source hint or result</text>
+  <text x="674" y="356" class="small">data-holder hint or result</text>
 
-  <!-- Direct source follow-up uses one data-holder FHIR server. -->
+  <!-- Direct follow-up uses one data-holder FHIR server. -->
   <path d="M150 205 V35 H902 V145" class="dash"/>
-  <rect x="430" y="11" width="248" height="22" class="tag-bg"/>
-  <text x="438" y="28" class="small">3b. query source or read target URL</text>
+  <rect x="420" y="11" width="280" height="22" class="tag-bg"/>
+  <text x="428" y="28" class="small">3b. follow-up-read or follow-up-search</text>
 
   <path d="M150 295 V465 H902 V330" class="dash"/>
-  <rect x="390" y="470" width="280" height="22" class="tag-bg"/>
-  <text x="398" y="487" class="small">3c. create Patient Data Feed subscription</text>
+  <rect x="378" y="470" width="304" height="22" class="tag-bg"/>
+  <text x="386" y="487" class="small">3c. follow-up-subscribe at endpoint</text>
 </svg>

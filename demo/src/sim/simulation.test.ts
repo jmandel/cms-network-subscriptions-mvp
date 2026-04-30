@@ -12,7 +12,7 @@ test("subscription-hinted scenario creates Patient Data Feed subscription", () =
   const sim = new NetworkActivitySimulation();
   sim.runScenario("subscription-hinted");
   expect(sim.state.app.feedSubscriptions.valley?.status).toBe("active");
-  expect(sim.state.app.sourceTokens.valley?.patient).toBe("source-patient-valley");
+  expect(sim.state.app.sourceTokens.valley?.patient).toBe("data-holder-patient-valley");
 });
 
 test("opaque scenario uses an activity handle to narrow RLS", () => {
@@ -32,9 +32,9 @@ test("opaque scenario uses an activity handle to narrow RLS", () => {
   expect(webhookPayload).not.toContain("suggested-action");
   expect(webhookPayload).not.toContain("detail-level");
   expect(webhookPayload).not.toContain("resource-type");
-  expect(webhookPayload).not.toContain("activity-window-start");
-  expect(webhookPayload).not.toContain("source-query");
-  expect(webhookPayload).not.toContain("target-url");
+  expect(webhookPayload).not.toContain("follow-up-search");
+  expect(webhookPayload).not.toContain("follow-up-read");
+  expect(webhookPayload).not.toContain("follow-up-subscribe");
   expect(webhookPayload).not.toContain("mercy");
   expect(webhookPayload).not.toContain("Mercy Hospital Phoenix");
   expect(webhookPayload).not.toContain("2234567890");
@@ -42,35 +42,35 @@ test("opaque scenario uses an activity handle to narrow RLS", () => {
   expect(sim.state.trace.some((event) => event.summary === "Run RLS discovery")).toBe(true);
 });
 
-test("resource-hinted scenario reads the hinted source resource", () => {
+test("read-hinted scenario reads the hinted data-holder resource", () => {
   const sim = new NetworkActivitySimulation();
-  sim.runScenario("resource-hinted");
+  sim.runScenario("read-hinted");
   const webhook = sim.state.trace.find(
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
-  expect(JSON.stringify(webhook?.request?.body)).toContain("target-url");
+  expect(JSON.stringify(webhook?.request?.body)).toContain("follow-up-read");
   expect(
     sim.state.trace.some(
-      (event) => event.request?.method === "GET" && event.request.path === "/sources/mercy/fhir/Encounter/enc-mercy-1",
+      (event) => event.request?.method === "GET" && event.request.path === "/data-holders/mercy/fhir/Encounter/enc-mercy-1",
     ),
   ).toBe(true);
-  expect(sim.state.app.knownSources.mercy?.discoveredBy).toBe("resource hint");
+  expect(sim.state.app.knownSources.mercy?.discoveredBy).toBe("follow-up-read");
 });
 
-test("source query scenario runs the explicit source query template", () => {
+test("search scenario runs the explicit follow-up search template", () => {
   const sim = new NetworkActivitySimulation();
-  sim.runScenario("known-source");
+  sim.runScenario("known-data-holder");
   const webhook = sim.state.trace.find(
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
   const webhookPayload = JSON.stringify(webhook?.request?.body);
-  expect(webhookPayload).toContain("source-query");
-  expect(webhookPayload).toContain("https://valley-clinic.example.org/fhir/Encounter?patient={patient}");
+  expect(webhookPayload).toContain("follow-up-search");
+  expect(webhookPayload).toContain("https://valley-clinic.example.org/fhir/Encounter?patient={{patient}}");
 
   const query = sim.state.trace.find(
-    (event) => event.request?.method === "GET" && event.request.path === "/sources/valley/fhir/Encounter",
+    (event) => event.request?.method === "GET" && event.request.path === "/data-holders/valley/fhir/Encounter",
   );
-  expect(query?.request?.query.patient).toBe("source-patient-valley");
+  expect(query?.request?.query.patient).toBe("data-holder-patient-valley");
   expect(query?.request?.query._lastUpdated).toBe("ge2026-04-29T15:00:00Z");
 });
 

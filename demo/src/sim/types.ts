@@ -7,7 +7,7 @@ export type ActorId =
   | "client"
   | "network"
   | "rls"
-  | "source";
+  | "data-holder";
 
 export type TraceKind =
   | "request"
@@ -76,19 +76,19 @@ export interface SendInput {
 
 export type DisclosurePolicy =
   | "opaque"
-  | "source-org"
-  | "source-endpoint"
-  | "feed-capable";
+  | "data-holder-organization"
+  | "data-holder-endpoint"
+  | "follow-up-subscribe";
 
 export type ScenarioId =
   | "bootstrap"
   | "opaque-rls"
   | "subscription-hinted"
-  | "known-source"
-  | "resource-hinted"
+  | "known-data-holder"
+  | "read-hinted"
   | "patient-data-feed"
   | "missed-activity"
-  | "sensitive-source";
+  | "sensitive-data-holder";
 
 export interface SourceFixture {
   id: string;
@@ -138,7 +138,8 @@ export interface SuggestedActionView {
   resourceType?: string;
   resourceId?: string;
   url?: string;
-  sourceQuery?: string;
+  followUpSearch?: string;
+  followUpSubscribe?: string;
 }
 
 export interface SimulationState {

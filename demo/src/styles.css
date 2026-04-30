@@ -32,8 +32,7 @@ button {
 .shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  min-height: 0;
+  min-height: 100vh;
   padding: 18px;
 }
 
@@ -110,7 +109,7 @@ h1 {
 .workspace {
   align-items: start;
   display: grid;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) minmax(390px, 560px);
   gap: 14px;
   margin: 0 auto;
@@ -168,7 +167,7 @@ h1 {
 .right-rail {
   display: grid;
   gap: 14px;
-  grid-template-rows: minmax(0, 1fr) 210px;
+  grid-template-rows: minmax(326px, auto) auto;
   min-width: 0;
   min-height: 0;
 }
@@ -237,7 +236,7 @@ h1 {
   align-items: start;
   display: grid;
   gap: 14px;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -684,7 +683,7 @@ h1 {
 
 .state-panel {
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .empty-state {
@@ -843,7 +842,7 @@ h1 {
 
   .right-rail {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 420px 210px;
+    grid-template-rows: minmax(420px, auto) auto;
   }
 }
 
@@ -891,6 +890,6 @@ h1 {
   }
 
   .right-rail {
-    grid-template-rows: 420px auto;
+    grid-template-rows: minmax(420px, auto) auto;
   }
 }
