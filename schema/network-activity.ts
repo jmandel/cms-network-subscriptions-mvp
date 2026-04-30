@@ -1,28 +1,36 @@
 export type FhirInstant = string;
 export type Url = string;
 
-export type ActivityType =
+export const CMS_ACTIVITY_TYPE_SYSTEM = "https://cms.gov/fhir/CodeSystem/network-activity-type";
+
+export type CmsActivityTypeCode =
   | "activity-detected"
   | "care-relationship-detected"
   | "data-holder-activity-detected"
-  | "data-holder-resource-detected"
+  | "visit-related"
+  | "diagnostic-related"
+  | "document-related"
+  | "medication-related"
   | (string & {});
 
 export type ActivityConfidence = "confirmed" | "probable" | "possible";
+
+export interface Coding {
+  system?: Url;
+  code: CmsActivityTypeCode;
+  display?: string;
+}
 
 export interface NetworkActivitySignal {
   topic: Url;
   activityId: string;
   patient: PatientContext;
   observedAt: FhirInstant;
-  activityType: ActivityType;
+  activityType: Coding[];
   confidence?: ActivityConfidence;
-  handle?: OpaqueActivityHandle;
+  activityHandle?: OpaqueActivityHandle;
   dataHolderOrganization?: OrganizationHint;
   dataHolderEndpoint?: Url;
-  followUpRead?: UrlTemplate[];
-  followUpSearch?: UrlTemplate[];
-  followUpDiscovery?: string;
   extensions?: Record<string, unknown>;
 }
 
@@ -36,8 +44,6 @@ export interface OpaqueActivityHandle {
   value: string;
   expiresAt?: FhirInstant;
 }
-
-export type UrlTemplate = string;
 
 export interface OrganizationHint {
   identifiers: Identifier[];

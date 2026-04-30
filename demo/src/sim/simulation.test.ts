@@ -19,7 +19,10 @@ test("endpoint-hinted scenario discovers capabilities and creates Patient Data F
   const webhook = sim.state.trace.find(
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
-  expect(JSON.stringify(webhook?.request?.body)).not.toContain("follow-up-discovery");
+  const bundle = webhook?.request?.body as any;
+  expect(bundle.type).toBe("history");
+  expect(bundle.entry?.[0]?.request?.url).toBe("Subscription/network-sub-1/$status");
+  expect(JSON.stringify(bundle)).not.toContain("follow-up-discovery");
   expect(
     sim.state.trace.some(
       (event) => event.request?.method === "GET" && event.request.path === "/data-holders/valley/fhir/metadata",
@@ -46,7 +49,8 @@ test("opaque scenario uses an activity handle to narrow RLS", () => {
   const webhookPayload = JSON.stringify(webhook?.request?.body);
   expect(webhookPayload).toContain("Parameters");
   expect(webhookPayload).toContain("activity-handle");
-  expect(webhookPayload).toContain("follow-up-discovery");
+  expect(webhookPayload).toContain("valueCoding");
+  expect(webhookPayload).not.toContain("follow-up-discovery");
   expect(webhookPayload).not.toContain("client-action");
   expect(webhookPayload).not.toContain("suggested-action");
   expect(webhookPayload).not.toContain("detail-level");
@@ -60,32 +64,34 @@ test("opaque scenario uses an activity handle to narrow RLS", () => {
   expect(sim.state.trace.some((event) => event.summary === "Run network discovery/RLS")).toBe(true);
 });
 
-test("read-hinted scenario reads the hinted data-holder resource", () => {
+test("activity-tags scenario uses ordinary data-holder follow-up", () => {
   const sim = new NetworkActivitySimulation();
-  sim.runScenario("read-hinted");
+  sim.runScenario("activity-tags");
   const webhook = sim.state.trace.find(
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
-  expect(JSON.stringify(webhook?.request?.body)).toContain("follow-up-read");
+  const webhookPayload = JSON.stringify(webhook?.request?.body);
+  expect(webhookPayload).toContain("diagnostic-related");
+  expect(webhookPayload).not.toContain("follow-up-read");
   expect(
     sim.state.trace.some(
-      (event) => event.request?.method === "GET" && event.request.path === "/data-holders/mercy/fhir/Encounter/enc-mercy-1",
+      (event) => event.request?.method === "GET" && event.request.path === "/data-holders/mercy/fhir/metadata",
     ),
   ).toBe(true);
-  expect(sim.state.app.knownSources.mercy?.discoveredBy).toBe("follow-up-read");
+  expect(sim.state.app.feedSubscriptions.mercy?.status).toBe("active");
 });
 
-test("search scenario runs the explicit follow-up search template", () => {
+test("known data-holder scenario runs ordinary source query without RLS", () => {
   const sim = new NetworkActivitySimulation();
   sim.runScenario("known-data-holder");
   const webhook = sim.state.trace.find(
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
   const webhookPayload = JSON.stringify(webhook?.request?.body);
-  expect(webhookPayload).toContain("follow-up-search");
-  expect(webhookPayload).toContain("https://valley-clinic.example.org/fhir/Encounter?patient={{patient}}");
+  expect(webhookPayload).toContain("data-holder-activity-detected");
+  expect(webhookPayload).toContain("visit-related");
+  expect(webhookPayload).not.toContain("follow-up-search");
   expect(webhookPayload).not.toContain("follow-up-discovery");
-  expect(webhookPayload).not.toContain("{{activity-handle}}");
   expect(sim.state.trace.some((event) => event.summary === "Run network discovery/RLS")).toBe(false);
 
   const query = sim.state.trace.find(
@@ -94,6 +100,7 @@ test("search scenario runs the explicit follow-up search template", () => {
   expect(query?.request?.query.patient).toBe("data-holder-patient-valley");
   expect(query?.request?.query._lastUpdated).toBe("ge2026-04-29T15:00:00Z");
   expect(query?.request?.query["activity-handle"]).toBeUndefined();
+  expect(sim.state.app.knownSources.valley?.discoveredBy).toBe("data-holder-query");
 });
 
 test("missed webhook triggers discovery and connected data-holder recovery", () => {

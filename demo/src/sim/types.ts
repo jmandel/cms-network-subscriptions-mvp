@@ -84,7 +84,7 @@ export type ScenarioId =
   | "opaque-rls"
   | "endpoint-hinted"
   | "known-data-holder"
-  | "read-hinted"
+  | "activity-tags"
   | "patient-data-feed"
   | "missed-activity"
   | "sensitive-data-holder";
@@ -135,10 +135,6 @@ export interface PendingRead {
 export interface SuggestedActionView {
   code: string;
   resourceType?: string;
-  resourceId?: string;
-  url?: string;
-  followUpSearch?: string;
-  followUpDiscovery?: string;
 }
 
 export interface SimulationState {

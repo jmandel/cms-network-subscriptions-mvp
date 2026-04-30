@@ -76,17 +76,17 @@ const scenarios: Array<{
   {
     id: "known-data-holder",
     label: "Known Data Holder",
-    short: "Run a hinted query.",
-    lesson: "If the activity signal includes a follow-up search URL, the client can run that search after data-holder authorization.",
-    steps: ["Webhook includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
+    short: "Prioritize one endpoint.",
+    lesson: "If the activity signal names a data-holder endpoint, the client can skip broad rediscovery and run ordinary authorized follow-up there.",
+    steps: ["Webhook names data holder", "Client authorizes at endpoint", "Client queries recent Encounters"],
     icon: Server,
   },
   {
-    id: "read-hinted",
-    label: "Read Hint",
-    short: "Read one hinted resource.",
-    lesson: "If policy allows a specific follow-up read URL, the client can authorize at the data holder and read that resource directly.",
-    steps: ["Webhook includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
+    id: "activity-tags",
+    label: "Activity Tags",
+    short: "Use type tags.",
+    lesson: "Activity type codings are tags. A client can use recognized tags to choose an ordinary retrieval strategy without the notification prescribing a URL.",
+    steps: ["Webhook includes activity-type tags", "Client authorizes at endpoint", "Client chooses ordinary follow-up"],
     icon: Database,
   },
   {
@@ -109,7 +109,7 @@ const scenarios: Array<{
     id: "sensitive-data-holder",
     label: "Sensitive Policy",
     short: "Opaque by policy.",
-    lesson: "Sensitive data holders can force opaque activity events while still permitting handle-scoped follow-up.",
+    lesson: "Sensitive data holders can force opaque activity events while still permitting handle-scoped network discovery.",
     steps: ["Network withholds data-holder detail", "Webhook carries only opaque hints", "Policy limits what comes back"],
     icon: Shield,
   },
@@ -555,16 +555,13 @@ function SignalCard({ signal }: { signal: NonNullable<ReturnType<typeof networkS
       <h3>Activity Signal</h3>
       <KeyValues
         items={[
-          ["activity", signal.activityType],
+          ["activity", activityTypeLabel(signal)],
           ["hint", hintLevelFromSignal(signal)],
           ["confidence", signal.confidence ?? "not supplied"],
           ["patient", signal.patient.id],
-          ["handle", signal.handle?.value ?? "none"],
+          ["handle", signal.activityHandle?.value ?? "none"],
           ["data holder", signal.dataHolderOrganization?.name ?? "not disclosed"],
           ["FHIR endpoint", signal.dataHolderEndpoint ?? "not disclosed"],
-          ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
-          ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
-          ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
         ]}
       />
     </section>
@@ -578,10 +575,7 @@ function ActionCard({ action }: { action: NonNullable<ReturnType<typeof actionFr
       <KeyValues
         items={[
           ["action", action.code],
-          ["resource", action.resourceType && action.resourceId ? `${action.resourceType}/${action.resourceId}` : "none"],
-          ["url", action.url ?? "none"],
-          ["follow-up search", action.followUpSearch ?? "none"],
-          ["follow-up discovery", action.followUpDiscovery ?? "none"],
+          ["resource", action.resourceType ?? "none"],
         ]}
       />
     </section>
@@ -903,21 +897,18 @@ function actionFromTrace(event: TraceEvent) {
     ? action as {
         code: string;
         resourceType?: string;
-        resourceId?: string;
-        url?: string;
-        followUpSearch?: string;
-        followUpDiscovery?: string;
       }
     : null;
 }
 
 function hintLevelFromSignal(signal: NetworkActivitySignal) {
-  if (signal.followUpRead?.length) return "read hinted";
-  if (signal.followUpSearch?.length) return "search hinted";
   if (signal.dataHolderEndpoint) return "endpoint hinted";
   if (signal.dataHolderOrganization) return "organization hinted";
-  if (signal.followUpDiscovery) return "discovery hinted";
   return "opaque";
+}
+
+function activityTypeLabel(signal: NetworkActivitySignal) {
+  return signal.activityType.map((coding) => coding.code).join(", ") || "not supplied";
 }
 
 function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSignalFromItem>): Array<[string, ReactNode]> {
@@ -925,9 +916,8 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
     return [
       ["FHIR focus", "Parameters"],
       ["topic", signal.topic],
-      ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
-      ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
-      ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
+      ["activity", activityTypeLabel(signal)],
+      ["data holder", signal.dataHolderOrganization?.name ?? "not disclosed"],
     ];
   }
 

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="290" viewBox="0 0 980 290" role="img" aria-labelledby="title desc">
   <title id="title">Network activity detail spectrum</title>
-  <desc id="desc">Activity signals can range from opaque discovery hints to data-holder organization hints, data-holder endpoint hints, follow-up search hints, and follow-up read hints.</desc>
+  <desc id="desc">Activity signals can range from opaque wake-up events to data-holder organization hints, endpoint hints, activity-type tags, and endpoint-level Patient Data Feed subscriptions.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -18,12 +18,12 @@
 
   <text x="70" y="45" class="small">less disclosure</text>
   <path d="M170 41 H810" class="line"/>
-  <text x="830" y="45" class="small">more actionable hints</text>
+  <text x="830" y="45" class="small">more actionable context</text>
 
   <rect x="55" y="85" width="200" height="135" class="muted"/>
   <text x="155" y="120" text-anchor="middle" class="label">Opaque</text>
   <text x="155" y="150" text-anchor="middle" class="small">activity handle</text>
-  <text x="155" y="172" text-anchor="middle" class="small">follow-up-discovery</text>
+  <text x="155" y="172" text-anchor="middle" class="small">network discovery</text>
   <text x="155" y="194" text-anchor="middle" class="small">no data-holder details</text>
 
   <rect x="285" y="85" width="155" height="135" class="panel"/>
@@ -35,18 +35,18 @@
   <rect x="465" y="85" width="155" height="135" class="panel"/>
   <text x="542" y="120" text-anchor="middle" class="label">Endpoint</text>
   <text x="542" y="150" text-anchor="middle" class="small">FHIR endpoint</text>
-  <text x="542" y="172" text-anchor="middle" class="small">check /metadata</text>
+  <text x="542" y="172" text-anchor="middle" class="small">authorize there</text>
   <text x="542" y="194" text-anchor="middle" class="small">query or subscribe</text>
 
   <rect x="645" y="85" width="155" height="135" class="panel"/>
-  <text x="722" y="120" text-anchor="middle" class="label">Search hinted</text>
-  <text x="722" y="150" text-anchor="middle" class="small">follow-up-search</text>
-  <text x="722" y="172" text-anchor="middle" class="small">substitute patient</text>
-  <text x="722" y="194" text-anchor="middle" class="small">run explicit search</text>
+  <text x="722" y="120" text-anchor="middle" class="label">Typed</text>
+  <text x="722" y="150" text-anchor="middle" class="small">activity-type tags</text>
+  <text x="722" y="172" text-anchor="middle" class="small">visit, document, lab</text>
+  <text x="722" y="194" text-anchor="middle" class="small">client chooses query</text>
 
   <rect x="825" y="85" width="155" height="135" class="panel"/>
-  <text x="902" y="120" text-anchor="middle" class="label">Read hinted</text>
-  <text x="902" y="150" text-anchor="middle" class="small">follow-up-read</text>
-  <text x="902" y="172" text-anchor="middle" class="small">authorize at endpoint</text>
-  <text x="902" y="194" text-anchor="middle" class="small">read one resource</text>
+  <text x="902" y="120" text-anchor="middle" class="label">Data Feed</text>
+  <text x="902" y="150" text-anchor="middle" class="small">Patient Data Feed</text>
+  <text x="902" y="172" text-anchor="middle" class="small">endpoint subscription</text>
+  <text x="902" y="194" text-anchor="middle" class="small">ongoing id-only events</text>
 </svg>

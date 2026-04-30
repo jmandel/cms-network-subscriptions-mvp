@@ -1,4 +1,4 @@
-# CMS Aligned Networks: Network Activity Notifications
+# CMS-Aligned Networks: Activity Notifications MVP
 
 Draft proposal for a minimal network-level activity notification capability.
 
@@ -7,9 +7,9 @@ Live simulator: <https://joshuamandel.com/cms-network-subscriptions-mvp/>
 This branch is intentionally standalone. It explores a small control-plane MVP:
 
 - Networks notify authorized clients that patient-relevant activity may exist.
-- Network webhooks use FHIR Subscriptions Backport `full-resource` mode to deliver an inline `Parameters` activity signal.
-- Activity signals may be fully opaque or may include optional data-holder and follow-up hints.
-- Clinical detail is discovered and retrieved through follow-up paths such as RLS, network query, follow-up search/read, or Patient Data Feed subscriptions at data-holder FHIR endpoints.
+- Network webhooks use the FHIR R4B Subscriptions Backport `full-resource` shape to deliver an inline `Parameters` activity signal.
+- Activity signals may be fully opaque or may include optional data-holder organization and endpoint hints.
+- Clinical detail is discovered and retrieved through ordinary network discovery/RLS, data-holder FHIR search/read, or Patient Data Feed subscriptions at data-holder FHIR endpoints.
 
 Start with [index.md](index.md).
 

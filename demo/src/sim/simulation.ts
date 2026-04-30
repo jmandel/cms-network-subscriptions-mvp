@@ -1,4 +1,9 @@
-import type { NetworkActivitySignal } from "../../../schema/network-activity";
+import {
+  CMS_ACTIVITY_TYPE_SYSTEM,
+  type Coding,
+  type CmsActivityTypeCode,
+  type NetworkActivitySignal,
+} from "../../../schema/network-activity";
 import {
   NETWORK_ACTIVITY_TOPIC,
   PATIENT_DATA_FEED_TOPIC,
@@ -135,18 +140,26 @@ function permissionTicketTokenRequest({
 type ActivityHintLevel =
   | "discovery-hinted"
   | "organization-hinted"
-  | "endpoint-hinted"
-  | "search-hinted"
-  | "read-hinted";
+  | "endpoint-hinted";
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
 function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
-  if (signal.followUpRead?.length) return "read-hinted";
-  if (signal.followUpSearch?.length) return "search-hinted";
   if (signal.dataHolderEndpoint) return "endpoint-hinted";
   if (signal.dataHolderOrganization) return "organization-hinted";
   return "discovery-hinted";
+}
+
+function cmsActivity(code: CmsActivityTypeCode): Coding {
+  return { system: CMS_ACTIVITY_TYPE_SYSTEM, code };
+}
+
+function activityCodes(signal: NetworkActivitySignal) {
+  return signal.activityType.map((coding) => coding.code);
+}
+
+function hasActivityType(signal: NetworkActivitySignal, code: CmsActivityTypeCode) {
+  return activityCodes(signal).includes(code);
 }
 
 export class NetworkActivitySimulation {
@@ -242,33 +255,33 @@ export class NetworkActivitySimulation {
 
     if (id === "opaque-rls") {
       this.setDisclosurePolicy("opaque");
-      this.injectNetworkEvent("mercy", "activity-detected", "probable");
+      this.injectNetworkEvent("mercy", ["activity-detected", "visit-related"], "probable");
       this.processPendingActions();
     }
 
     if (id === "endpoint-hinted") {
       this.setDisclosurePolicy("data-holder-endpoint");
-      this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
+      this.injectNetworkEvent("valley", ["care-relationship-detected", "visit-related"], "confirmed");
       this.processPendingActions();
     }
 
     if (id === "known-data-holder") {
       this.setDisclosurePolicy("data-holder-endpoint");
       this.learnSource(this.state.sources.valley, "seeded app state");
-      this.injectNetworkEvent("valley", "data-holder-activity-detected", "confirmed");
+      this.injectNetworkEvent("valley", ["data-holder-activity-detected", "visit-related"], "confirmed");
       this.processPendingActions();
     }
 
-    if (id === "read-hinted") {
+    if (id === "activity-tags") {
       this.setDisclosurePolicy("data-holder-endpoint");
-      this.injectNetworkEvent("mercy", "data-holder-resource-detected", "confirmed", "https://network.example.org/fhir/data-holders/mercy/Encounter/enc-mercy-1");
+      this.injectNetworkEvent("mercy", ["data-holder-activity-detected", "diagnostic-related"], "confirmed");
       this.processPendingActions();
     }
 
     if (id === "patient-data-feed") {
       if (!this.state.app.feedSubscriptions.valley) {
         this.setDisclosurePolicy("data-holder-endpoint");
-        this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
+        this.injectNetworkEvent("valley", ["care-relationship-detected", "visit-related"], "confirmed");
         this.processPendingActions();
       }
       this.injectSourceEvent("valley", "Encounter", "enc-valley-1");
@@ -278,24 +291,23 @@ export class NetworkActivitySimulation {
     if (id === "missed-activity") {
       this.setDisclosurePolicy("opaque");
       this.state.network.dropNextWebhook = true;
-      this.injectNetworkEvent("valley", "activity-detected", "probable");
+      this.injectNetworkEvent("valley", ["activity-detected", "visit-related"], "probable");
       this.processPendingActions();
-      this.injectNetworkEvent("mercy", "activity-detected", "probable");
+      this.injectNetworkEvent("mercy", ["activity-detected", "visit-related"], "probable");
       this.processPendingActions();
     }
 
     if (id === "sensitive-data-holder") {
       this.setDisclosurePolicy("data-holder-endpoint");
-      this.injectNetworkEvent("northside", "activity-detected", "possible");
+      this.injectNetworkEvent("northside", ["activity-detected", "visit-related"], "possible");
       this.processPendingActions();
     }
   }
 
   injectNetworkEvent(
     sourceId: string,
-    activityType = "activity-detected",
+    activityType: CmsActivityTypeCode[] = ["activity-detected"],
     confidence: NetworkActivitySignal["confidence"] = "confirmed",
-    followUpRead?: string,
   ) {
     this.kernel.send({
       from: "simulation",
@@ -303,8 +315,8 @@ export class NetworkActivitySimulation {
       method: "POST",
       path: "/network/internal/events",
       headers: { "content-type": "application/json" },
-      body: { sourceId, activityType, confidence, followUpRead },
-      summary: `Simulate ${activityType} at ${this.state.sources[sourceId].name}`,
+      body: { sourceId, activityType, confidence },
+      summary: `Simulate ${activityType.join(", ")} at ${this.state.sources[sourceId].name}`,
     });
   }
 
@@ -335,32 +347,6 @@ export class NetworkActivitySimulation {
         details: { signal, action },
       });
 
-      if (action.code === "read-data-holder") {
-        const source = this.sourceFromSignal(signal);
-        if (!source || !action.resourceType || !action.resourceId) {
-          this.traceDecision("No specific data-holder resource available for read-data-holder", { signal, action });
-          continue;
-        }
-        const token = this.ensureSourceToken(source);
-        const response = this.kernel.send({
-          from: "client",
-          to: "data-holder",
-          method: "GET",
-          path: `/data-holders/${source.id}/fhir/${action.resourceType}/${action.resourceId}`,
-          headers: { authorization: `Bearer ${token.token}` },
-          correlationId: signal.activityId,
-          summary: `Run follow-up-read`,
-        });
-        this.learnSource(source, "follow-up-read");
-        this.kernel.trace({
-          kind: "state-change",
-          actor: "client",
-          summary: `Client read hinted ${action.resourceType}/${action.resourceId}`,
-          details: response.body,
-          correlationId: signal.activityId,
-        });
-      }
-
       if (action.code === "discover-network" || action.code === "rediscover" || action.code === "recover-network") {
         const response = this.kernel.send({
           from: "client",
@@ -370,8 +356,7 @@ export class NetworkActivitySimulation {
           headers: { "content-type": "application/json" },
           body: {
             patient: signal.patient.id,
-            "activity-handle": signal.handle?.value,
-            followUpDiscovery: action.followUpDiscovery ?? signal.followUpDiscovery,
+            "activity-handle": signal.activityHandle?.value,
           },
           correlationId: signal.activityId,
           summary: "Run network discovery/RLS",
@@ -382,24 +367,24 @@ export class NetworkActivitySimulation {
         }
       }
 
-      if (action.code === "search-data-holder") {
+      if (action.code === "query-data-holder") {
         const source = this.sourceFromSignal(signal);
-        if (!source || !action.followUpSearch) {
-          this.traceDecision("No explicit follow-up-search available", { signal, action });
+        if (!source) {
+          this.traceDecision("No data-holder FHIR endpoint available for query-data-holder", { signal, action });
           continue;
         }
         const token = this.ensureSourceToken(source);
-        const path = renderFollowUpPath(source, action.followUpSearch, token.patient);
+        const resourceType = action.resourceType === "Appointment" ? "Appointment" : "Encounter";
         const response = this.kernel.send({
           from: "client",
           to: "data-holder",
           method: "GET",
-          path,
+          path: dataHolderSearchPath(source, resourceType, token.patient),
           headers: { authorization: `Bearer ${token.token}` },
           correlationId: signal.activityId,
-          summary: `Run follow-up-search`,
+          summary: `Query ${source.name} ${resourceType}`,
         });
-        this.learnSource(source, "follow-up-search");
+        this.learnSource(source, "data-holder-query");
         this.kernel.trace({
           kind: "state-change",
           actor: "client",
@@ -543,9 +528,8 @@ export class NetworkActivitySimulation {
       handle: (request, context) => {
         const body = request.body as {
           sourceId: string;
-          activityType: string;
+          activityType: CmsActivityTypeCode[];
           confidence: NetworkActivitySignal["confidence"];
-          followUpRead?: string;
         };
         const source = context.state.sources[body.sourceId];
         context.state.network.eventCounter += 1;
@@ -556,7 +540,7 @@ export class NetworkActivitySimulation {
           patientId: PATIENT_ID,
           createdAt: new Date().toISOString(),
         };
-        const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence, body.followUpRead);
+        const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence);
         context.state.network.events[eventNumber] = {
           eventNumber,
           signal,
@@ -641,12 +625,10 @@ export class NetworkActivitySimulation {
               activityId: `recovery-before-${eventNumber}`,
               patient: { id: PATIENT_ID, scope: "network" },
               observedAt: new Date().toISOString(),
-              activityType: "activity-detected",
-              followUpDiscovery: "ordinary-network-discovery",
+              activityType: [cmsActivity("activity-detected")],
             },
             action: {
               code: "recover-network",
-              followUpDiscovery: "ordinary-network-discovery",
             },
           });
         }
@@ -854,81 +836,53 @@ export class NetworkActivitySimulation {
     source: SourceRecord,
     eventNumber: number,
     handle: string,
-    activityType: string,
+    activityType: CmsActivityTypeCode[],
     confidence: NetworkActivitySignal["confidence"],
-    followUpRead?: string,
   ): NetworkActivitySignal {
     const effectivePolicy: DisclosurePolicy = source.sensitive ? "opaque" : this.state.network.disclosurePolicy;
-    const requestedRead = followUpRead;
-    const hintLevel = this.hintLevelFor(source, effectivePolicy, activityType, requestedRead);
+    const hintLevel = this.hintLevelFor(effectivePolicy);
     const signal: NetworkActivitySignal = {
       topic: NETWORK_ACTIVITY_TOPIC,
       activityId: opaqueToken("act", eventNumber),
       patient: { id: PATIENT_ID, scope: "network" },
       observedAt: new Date().toISOString(),
-      activityType,
+      activityType: activityType.map(cmsActivity),
       confidence,
-      handle: {
+      activityHandle: {
         value: handle,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       },
     };
 
-    if (hintLevel === "discovery-hinted" || hintLevel === "organization-hinted") {
-      signal.followUpDiscovery = "ordinary-network-discovery";
-    }
     if (hintLevel !== "discovery-hinted") {
       signal.dataHolderOrganization = { identifiers: organization(source).identifier, name: source.name };
     }
-    if (hintLevel === "endpoint-hinted" || hintLevel === "search-hinted" || hintLevel === "read-hinted") {
+    if (hintLevel === "endpoint-hinted") {
       signal.dataHolderEndpoint = source.endpoint;
-    }
-    if (hintLevel === "read-hinted" && requestedRead) {
-      signal.followUpRead = [requestedRead];
-    } else if (hintLevel === "search-hinted") {
-      signal.followUpSearch = [followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START)];
     }
 
     return signal;
   }
 
-  private hintLevelFor(
-    source: SourceRecord,
-    policy: DisclosurePolicy,
-    activityType: string,
-    followUpRead?: string,
-  ): ActivityHintLevel {
+  private hintLevelFor(policy: DisclosurePolicy): ActivityHintLevel {
     if (policy === "opaque") {
       return "discovery-hinted";
     }
-    if (followUpRead) {
-      return "read-hinted";
-    }
     if (policy === "data-holder-organization") {
       return "organization-hinted";
-    }
-    if (policy === "data-holder-endpoint" && source.supportsQuery && activityType === "data-holder-activity-detected") {
-      return "search-hinted";
     }
     return "endpoint-hinted";
   }
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
-    if (signal.followUpRead?.[0] && signal.dataHolderEndpoint) {
-      const readUrl = signal.followUpRead[0];
-      const target = resourceFromUrl(readUrl);
-      if (target) {
-        return { code: "read-data-holder", ...target, url: readUrl };
-      }
+    if (signal.dataHolderEndpoint && hasActivityType(signal, "care-relationship-detected")) {
+      return { code: "inspect-data-holder" };
     }
-    if (signal.dataHolderEndpoint && signal.followUpSearch?.[0]) {
-      return { code: "search-data-holder", followUpSearch: signal.followUpSearch[0] };
+    if (signal.dataHolderEndpoint && hasActivityType(signal, "visit-related")) {
+      return { code: "query-data-holder", resourceType: "Encounter" };
     }
     if (signal.dataHolderEndpoint) {
       return { code: "inspect-data-holder" };
-    }
-    if (signal.followUpDiscovery) {
-      return { code: "discover-network", followUpDiscovery: signal.followUpDiscovery };
     }
     return { code: "discover-network" };
   }
@@ -995,7 +949,7 @@ export class NetworkActivitySimulation {
         from: "client",
         to: "data-holder",
         method: "GET",
-        path: renderFollowUpPath(source, followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START), token.patient),
+        path: dataHolderSearchPath(source, "Encounter", token.patient),
         headers: { authorization: `Bearer ${token.token}` },
         correlationId,
         summary: `Recovery query at ${source.name}`,
@@ -1093,35 +1047,12 @@ function extractHandle(body: unknown) {
   return parameter?.valueString ? String(parameter.valueString) : undefined;
 }
 
-function resourceFromUrl(url: string) {
-  const path = /^https?:\/\//.test(url) ? new URL(url).pathname : url.split("?")[0];
-  const parts = path.split("/").filter(Boolean);
-  const resourceId = parts[parts.length - 1];
-  const resourceType = parts[parts.length - 2];
-  if (!resourceType || !resourceId) {
-    return undefined;
-  }
-  return { resourceType, resourceId };
-}
-
-function followUpSearchTemplate(source: SourceRecord, resourceType: "Encounter" | "Appointment", since: string) {
-  return `${source.endpoint}/${resourceType}?patient={{patient}}&_lastUpdated=ge${encodeURIComponent(since)}`;
-}
-
-function renderFollowUpPath(source: SourceRecord, template: string, patient: string) {
-  const rendered = template.replace(/\{\{patient\}\}/g, encodeURIComponent(patient));
-  if (/^https?:\/\//.test(rendered)) {
-    const renderedUrl = new URL(rendered);
-    const endpointUrl = new URL(source.endpoint);
-    const endpointPath = endpointUrl.pathname.replace(/\/$/, "");
-    let sourceRelativePath = renderedUrl.pathname;
-    if (endpointPath && sourceRelativePath.startsWith(endpointPath)) {
-      sourceRelativePath = sourceRelativePath.slice(endpointPath.length);
-    }
-    sourceRelativePath = sourceRelativePath.replace(/^\//, "");
-    return `/data-holders/${source.id}/fhir/${sourceRelativePath}${renderedUrl.search}`;
-  }
-  return `/data-holders/${source.id}/fhir/${rendered.replace(/^\//, "")}`;
+function dataHolderSearchPath(source: SourceRecord, resourceType: "Encounter" | "Appointment", patient: string) {
+  const query = new URLSearchParams({
+    patient,
+    _lastUpdated: `ge${ACTIVITY_WINDOW_START}`,
+  });
+  return `/data-holders/${source.id}/fhir/${resourceType}?${query.toString()}`;
 }
 
 function firstQueryValue(value: string | string[] | undefined) {

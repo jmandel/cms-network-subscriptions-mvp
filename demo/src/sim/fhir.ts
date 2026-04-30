@@ -1,6 +1,8 @@
-import type {
-  ActivityConfidence,
-  NetworkActivitySignal,
+import {
+  CMS_ACTIVITY_TYPE_SYSTEM,
+  type ActivityConfidence,
+  type Coding,
+  type NetworkActivitySignal,
 } from "../../../schema/network-activity";
 import { NETWORK_ACTIVITY_TOPIC, PATIENT_DATA_FEED_TOPIC, PATIENT_ID } from "./fixtures";
 import type { SourceRecord } from "./types";
@@ -83,17 +85,19 @@ export function activityParameters(signal: NetworkActivitySignal) {
   const params: unknown[] = [
     { name: "activity-id", valueString: signal.activityId },
     { name: "patient", valueString: signal.patient.id },
-    { name: "activity-type", valueCode: signal.activityType },
     { name: "observed-at", valueInstant: signal.observedAt },
   ];
+  for (const activityType of signal.activityType) {
+    params.push({ name: "activity-type", valueCoding: activityType });
+  }
 
   if (signal.confidence) {
     params.push({ name: "confidence", valueCode: signal.confidence });
   }
-  if (signal.handle) {
-    params.push({ name: "activity-handle", valueString: signal.handle.value });
-    if (signal.handle.expiresAt) {
-      params.push({ name: "activity-handle-expires", valueInstant: signal.handle.expiresAt });
+  if (signal.activityHandle) {
+    params.push({ name: "activity-handle", valueString: signal.activityHandle.value });
+    if (signal.activityHandle.expiresAt) {
+      params.push({ name: "activity-handle-expires", valueInstant: signal.activityHandle.expiresAt });
     }
   }
   if (signal.dataHolderOrganization) {
@@ -108,15 +112,6 @@ export function activityParameters(signal: NetworkActivitySignal) {
   }
   if (signal.dataHolderEndpoint) {
     params.push({ name: "data-holder-endpoint", valueUrl: signal.dataHolderEndpoint });
-  }
-  signal.followUpRead?.forEach((url) => {
-    params.push({ name: "follow-up-read", valueString: url });
-  });
-  signal.followUpSearch?.forEach((url) => {
-    params.push({ name: "follow-up-search", valueString: url });
-  });
-  if (signal.followUpDiscovery) {
-    params.push({ name: "follow-up-discovery", valueString: signal.followUpDiscovery });
   }
 
   return {
@@ -142,11 +137,13 @@ export function networkActivityEventsBundle(
   const latest = events[events.length - 1];
   return {
     resourceType: "Bundle",
-    type: "subscription-notification",
+    type: "history",
     timestamp: latest?.signal.observedAt ?? new Date().toISOString(),
     entry: [
       {
         fullUrl: "urn:uuid:status-1",
+        request: { method: "GET", url: `Subscription/${subscriptionId}/$status` },
+        response: { status: "200" },
         resource: {
           resourceType: "SubscriptionStatus",
           status: "active",
@@ -166,6 +163,8 @@ export function networkActivityEventsBundle(
       ...(content === "full-resource"
         ? events.map(({ signal, eventNumber }) => ({
             fullUrl: `urn:uuid:activity-${eventNumber}`,
+            request: { method: "GET", url: `urn:uuid:activity-${eventNumber}` },
+            response: { status: "200" },
             resource: activityParameters(signal),
           }))
         : []),
@@ -235,18 +234,18 @@ function parseActivityParameters(params: any): NetworkActivitySignal | undefined
   const dataHolderOrg = first("data-holder-organization")?.resource;
   const dataHolderEndpoint = first("data-holder-endpoint")?.valueUrl;
   const handle = first("activity-handle")?.valueString;
-  const followUpRead = (values.get("follow-up-read") ?? []).map((item) => item.valueString);
-  const followUpSearch = (values.get("follow-up-search") ?? []).map((item) => item.valueString);
-  const followUpDiscovery = first("follow-up-discovery")?.valueString;
+  const activityType = (values.get("activity-type") ?? [])
+    .map((item) => codingFromParameter(item))
+    .filter((item): item is Coding => Boolean(item));
 
   return {
     topic: NETWORK_ACTIVITY_TOPIC,
     activityId: first("activity-id")?.valueString,
     patient: { id: first("patient")?.valueString, scope: "network" },
     observedAt: first("observed-at")?.valueInstant,
-    activityType: first("activity-type")?.valueCode,
+    activityType,
     confidence: first("confidence")?.valueCode as ActivityConfidence | undefined,
-    handle: handle
+    activityHandle: handle
       ? {
           value: handle,
           expiresAt: first("activity-handle-expires")?.valueInstant,
@@ -259,8 +258,15 @@ function parseActivityParameters(params: any): NetworkActivitySignal | undefined
         }
       : undefined,
     dataHolderEndpoint,
-    followUpRead,
-    followUpSearch,
-    followUpDiscovery,
   };
+}
+
+function codingFromParameter(parameter: any): Coding | undefined {
+  if (parameter.valueCoding?.code) {
+    return parameter.valueCoding;
+  }
+  if (parameter.valueCode) {
+    return { system: CMS_ACTIVITY_TYPE_SYSTEM, code: parameter.valueCode };
+  }
+  return undefined;
 }
