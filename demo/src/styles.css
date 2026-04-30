@@ -32,8 +32,10 @@ button {
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  padding: 18px;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px;
 }
 
 .topbar {
@@ -42,13 +44,20 @@ button {
   flex: 0 0 auto;
   justify-content: space-between;
   gap: 16px;
-  margin: 0 auto 12px;
-  max-width: 1800px;
+  margin: 0 auto 6px;
+  max-width: 1920px;
   width: 100%;
 }
 
+.topbar > div:first-child {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
 h1 {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.15;
   margin: 0;
   font-weight: 720;
@@ -56,8 +65,8 @@ h1 {
 
 .subhead {
   color: #596775;
-  font-size: 13px;
-  margin-top: 4px;
+  font-size: 12px;
+  margin-top: 0;
 }
 
 .top-actions {
@@ -74,8 +83,8 @@ h1 {
   color: #ffffff;
   display: inline-flex;
   gap: 7px;
-  min-height: 34px;
-  padding: 7px 10px;
+  min-height: 30px;
+  padding: 5px 9px;
 }
 
 .icon-button.secondary {
@@ -86,29 +95,29 @@ h1 {
 .control-panel {
   display: grid;
   flex: 0 0 auto;
-  gap: 12px;
+  gap: 6px;
   grid-template-columns: 1fr;
-  margin: 0 auto 14px;
-  max-width: 1800px;
-  padding: 12px 14px;
+  margin: 0 auto 8px;
+  max-width: 1920px;
+  padding: 8px 12px;
   width: 100%;
 }
 
 .control-row {
   align-items: start;
   display: grid;
-  gap: 14px;
-  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 10px;
+  grid-template-columns: 104px minmax(0, 1fr);
   min-width: 0;
 }
 
 .control-row .section-title {
-  margin: 9px 0 0;
+  margin: 6px 0 0;
 }
 
 .advanced-setup {
   border-top: 1px solid #e4eaee;
-  padding-top: 10px;
+  padding-top: 5px;
 }
 
 .advanced-setup summary {
@@ -117,7 +126,7 @@ h1 {
   cursor: pointer;
   display: inline-flex;
   gap: 7px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   list-style: none;
   text-transform: uppercase;
@@ -130,7 +139,7 @@ h1 {
 .advanced-setup summary::after {
   color: #60717e;
   content: "Show";
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   margin-left: 4px;
   text-transform: none;
@@ -141,7 +150,7 @@ h1 {
 }
 
 .advanced-setup .setup-grid {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .advanced-setup:not([open]) .setup-grid {
@@ -160,6 +169,31 @@ h1 {
   width: 100%;
 }
 
+.workbench-grid {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 12px;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1fr) minmax(360px, 1fr);
+  margin: 0 auto;
+  max-width: 1920px;
+  min-height: 0;
+  width: 100%;
+}
+
+.workbench-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.column-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .app-footer {
   align-items: center;
   color: #52616d;
@@ -169,8 +203,8 @@ h1 {
   font-size: 12px;
   gap: 8px 12px;
   justify-content: space-between;
-  margin: 12px auto 0;
-  max-width: 1800px;
+  margin: 8px auto 0;
+  max-width: 1920px;
   width: 100%;
 }
 
@@ -219,17 +253,32 @@ h1 {
   color: #263846;
   display: flex;
   gap: 7px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-transform: uppercase;
 }
 
 .scenario-strip {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   min-width: 0;
+}
+
+.scenario-picker {
+  min-width: 0;
+}
+
+.scenario-select {
+  background: #ffffff;
+  border: 1px solid #b9c9d3;
+  border-radius: 7px;
+  color: #17313a;
+  display: none;
+  min-height: 36px;
+  padding: 6px 10px;
+  width: 100%;
 }
 
 .scenario-button {
@@ -238,9 +287,9 @@ h1 {
   color: #17313a;
   display: inline-flex;
   justify-content: center;
-  min-height: 40px;
+  min-height: 30px;
   min-width: 0;
-  padding: 6px 9px;
+  padding: 4px 6px;
   text-align: center;
 }
 
@@ -250,7 +299,7 @@ h1 {
 }
 
 .scenario-button strong {
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.2;
   min-width: 0;
   overflow: hidden;
@@ -351,13 +400,18 @@ h1 {
 }
 
 .guide-panel {
-  padding: 14px;
+  flex: 0 0 auto;
+  margin: 0 auto 8px;
+  max-width: 1920px;
+  padding: 10px 12px;
+  width: 100%;
 }
 
 .guide-layout {
+  align-items: start;
   display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.65fr);
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, auto);
 }
 
 .guide-copy {
@@ -365,23 +419,48 @@ h1 {
 }
 
 .guide-copy h2 {
-  font-size: 20px;
+  font-size: 16px;
   line-height: 1.2;
-  margin: 0 0 6px;
+  margin: 0;
 }
 
 .guide-copy p {
   color: #52616d;
-  font-size: 14px;
-  line-height: 1.45;
-  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0 0 6px;
   max-width: 70ch;
+}
+
+.flow-title {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.flow-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  min-width: 0;
+}
+
+.flow-title .section-title,
+.panel-head .section-title {
+  margin-bottom: 0;
+}
+
+.flow-heading h2 {
+  margin: 0;
 }
 
 .step-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
 }
 
 .step-strip span {
@@ -391,10 +470,10 @@ h1 {
   border-radius: 999px;
   color: #2b3a45;
   display: inline-flex;
-  font-size: 12px;
-  gap: 7px;
-  min-height: 30px;
-  padding: 5px 10px 5px 6px;
+  font-size: 11.5px;
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 8px 3px 4px;
 }
 
 .step-strip b {
@@ -404,9 +483,9 @@ h1 {
   color: #ffffff;
   display: inline-flex;
   font-size: 11px;
-  height: 20px;
+  height: 18px;
   justify-content: center;
-  width: 20px;
+  width: 18px;
 }
 
 .small-action {
@@ -414,8 +493,8 @@ h1 {
   border: 1px solid #b9c9d3;
   border-radius: 7px;
   color: #23313d;
-  min-height: 32px;
-  padding: 5px 10px;
+  min-height: 28px;
+  padding: 4px 9px;
 }
 
 .small-action:hover {
@@ -426,8 +505,9 @@ h1 {
   align-content: start;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
   justify-content: flex-end;
+  max-width: 390px;
 }
 
 .actor-strip span {
@@ -437,10 +517,10 @@ h1 {
   border-radius: 999px;
   color: #344450;
   display: inline-flex;
-  font-size: 12px;
+  font-size: 11.5px;
   gap: 6px;
-  min-height: 30px;
-  padding: 5px 9px;
+  min-height: 25px;
+  padding: 3px 7px;
 }
 
 .actor-strip span:nth-child(1) svg {
@@ -491,7 +571,7 @@ h1 {
   border: 1px solid #d8e0e5;
   border-radius: 7px;
   flex: 1 1 auto;
-  max-height: 520px;
+  height: 100%;
   min-height: 0;
   overflow: auto;
 }
@@ -511,8 +591,8 @@ h1 {
   color: #17212b;
   display: grid;
   gap: 10px;
-  grid-template-columns: 32px 94px minmax(0, 1fr) 52px;
-  min-height: 58px;
+  grid-template-columns: 28px 86px minmax(0, 1fr) 42px;
+  min-height: 56px;
   padding: 8px 10px;
   text-align: left;
   width: 100%;
@@ -582,11 +662,22 @@ h1 {
   border-radius: 7px;
   display: grid;
   gap: 10px;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   padding: 10px;
+}
+
+.column-body > .http-card,
+.response-stack > .http-card {
+  min-height: 0;
+}
+
+.response-stack {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
 }
 
 .http-card__top {
@@ -619,7 +710,7 @@ h1 {
   line-height: 1.45;
   margin: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   padding: 10px;
   white-space: pre-wrap;
 }
@@ -902,33 +993,31 @@ h1 {
 
 @media (max-width: 1180px) {
   .shell {
-    height: auto;
-    min-height: 100vh;
+    padding: 12px;
   }
 
   .control-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 110px minmax(0, 1fr);
   }
 
   .control-row .section-title {
-    margin-top: 0;
+    margin-top: 9px;
   }
 
   .scenario-strip {
-    display: flex;
-    max-width: 100%;
-    overflow-x: auto;
-    padding-bottom: 4px;
-    scrollbar-width: none;
-    width: 100%;
-  }
-
-  .scenario-strip::-webkit-scrollbar {
     display: none;
   }
 
-  .scenario-button {
-    flex: 0 0 162px;
+  .scenario-select {
+    display: block;
+  }
+
+  .workbench-grid {
+    grid-template-columns: minmax(280px, 0.85fr) minmax(300px, 1fr) minmax(300px, 1fr);
+  }
+
+  .actor-strip {
+    max-width: 330px;
   }
 
   .setup-grid {
@@ -939,18 +1028,13 @@ h1 {
     grid-column: 1 / -1;
   }
 
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .right-rail {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(420px, auto) auto;
-  }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
     padding: 10px;
   }
 
@@ -960,11 +1044,32 @@ h1 {
   }
 
   .workspace,
+  .workbench-grid,
   .right-rail,
   .state-grid,
   .traffic-detail-grid,
   .guide-layout {
     grid-template-columns: 1fr;
+  }
+
+  .workbench-grid {
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .workbench-column {
+    overflow: visible;
+  }
+
+  .column-body,
+  .traffic-list {
+    height: auto;
+    overflow: visible;
+  }
+
+  .column-body > .http-card,
+  .response-stack > .http-card {
+    min-height: 0;
   }
 
   .control-panel {
@@ -976,16 +1081,12 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .scenario-strip {
-    display: grid;
-    gap: 8px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: visible;
+  .control-row {
+    grid-template-columns: 1fr;
   }
 
-  .scenario-button {
-    flex: 1 1 auto;
-    width: 100%;
+  .control-row .section-title {
+    margin-top: 0;
   }
 
   .source-chip {
@@ -994,6 +1095,7 @@ h1 {
 
   .actor-strip {
     justify-content: flex-start;
+    max-width: none;
   }
 
   .trace-row {

@@ -21,8 +21,6 @@ import { parseNetworkActivityBundle } from "./sim/fhir";
 import { NetworkActivitySimulation } from "./sim/simulation";
 import type { DisclosurePolicy, ScenarioId, Snapshot, TraceEvent } from "./sim/types";
 
-type InspectorMode = "summary" | "request" | "response" | "raw";
-
 type TrafficItem =
   | {
       id: string;
@@ -136,14 +134,13 @@ export function App() {
   const simRef = useRef(new NetworkActivitySimulation());
   const [snapshot, setSnapshot] = useState<Snapshot>(() => simRef.current.snapshot());
   const [selectedTrafficId, setSelectedTrafficId] = useState<string | undefined>();
-  const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
   const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>("bootstrap");
 
   const trafficItems = useMemo(() => buildTrafficItems(snapshot.state.trace), [snapshot.state.trace]);
   const selectedTraffic = useMemo(
     () =>
       trafficItems.find((item) => item.id === selectedTrafficId) ??
-      trafficItems[trafficItems.length - 1],
+      defaultTrafficItem(trafficItems),
     [selectedTrafficId, trafficItems],
   );
 
@@ -207,20 +204,34 @@ export function App() {
       <section className="panel control-panel">
         <div className="control-row scenario-row">
           <SectionTitle icon={Workflow} label="Scenarios" />
-          <div className="scenario-strip">
-            {scenarios.map((scenario) => {
-              const Icon = scenario.icon;
-              return (
-                <button
-                  key={scenario.id}
-                  className={`scenario-button ${scenario.id === activeScenarioId ? "selected" : ""}`}
-                  onClick={() => runScenario(scenario.id)}
-                >
-                  <Icon size={15} />
-                  <strong>{scenario.label}</strong>
-                </button>
-              );
-            })}
+          <div className="scenario-picker">
+            <select
+              className="scenario-select"
+              value={activeScenarioId}
+              onChange={(event) => runScenario(event.currentTarget.value as ScenarioId)}
+              aria-label="Scenario"
+            >
+              {scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.label}
+                </option>
+              ))}
+            </select>
+            <div className="scenario-strip">
+              {scenarios.map((scenario) => {
+                const Icon = scenario.icon;
+                return (
+                  <button
+                    key={scenario.id}
+                    className={`scenario-button ${scenario.id === activeScenarioId ? "selected" : ""}`}
+                    onClick={() => runScenario(scenario.id)}
+                  >
+                    <Icon size={15} />
+                    <strong>{scenario.label}</strong>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -259,82 +270,76 @@ export function App() {
         </details>
       </section>
 
-      <section className="workspace">
-        <section className="center-stack">
-          <section className="panel guide-panel">
-            <div className="panel-head">
-              <SectionTitle icon={Network} label="Current Flow" />
+      <section className="panel guide-panel">
+        <div className="guide-layout">
+          <div className="guide-copy">
+            <div className="flow-title">
+              <div className="flow-heading">
+                <SectionTitle icon={Network} label="Current Flow" />
+                <h2>{activeScenario.label}</h2>
+              </div>
               <button className="small-action" type="button" onClick={() => runScenario(activeScenario.id)}>
                 Run again
               </button>
             </div>
-            <div className="guide-layout">
-              <div className="guide-copy">
-                <h2>{activeScenario.label}</h2>
-                <p>{activeScenario.lesson}</p>
-                <div className="step-strip">
-                  {activeScenario.steps.map((step, index) => (
-                    <span key={step}>
-                      <b>{index + 1}</b>
-                      {step}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="actor-strip" aria-label="Actors">
-                {actorItems.map((actor) => {
-                  const Icon = actor.icon;
-                  return (
-                    <span key={actor.id}>
-                      <Icon size={15} />
-                      {actor.label}
-                    </span>
-                  );
-                })}
-              </div>
+            <p>{activeScenario.lesson}</p>
+            <div className="step-strip">
+              {activeScenario.steps.map((step, index) => (
+                <span key={step}>
+                  <b>{index + 1}</b>
+                  {step}
+                </span>
+              ))}
             </div>
-          </section>
+          </div>
+          <div className="actor-strip" aria-label="Actors">
+            {actorItems.map((actor) => {
+              const Icon = actor.icon;
+              return (
+                <span key={actor.id}>
+                  <Icon size={15} />
+                  {actor.label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
-          <section className="panel traffic-panel">
-            <div className="panel-head">
-              <SectionTitle icon={Send} label="Traffic" />
-              <span className="counter">{trafficItems.length} rows / {state.trace.length} events</span>
-            </div>
-            <div className="traffic-workbench">
-              <TrafficList
-                items={trafficItems}
-                selectedTrafficId={selectedTraffic?.id}
-                onSelect={(id) => setSelectedTrafficId(id)}
-              />
-            </div>
-          </section>
+      <section className="workbench-grid">
+        <section className="panel workbench-column">
+          <div className="panel-head">
+            <SectionTitle icon={Send} label="Events" />
+            <span className="counter">{trafficItems.length} rows / {state.trace.length} events</span>
+          </div>
+          <div className="column-body">
+            <TrafficList
+              items={trafficItems}
+              selectedTrafficId={selectedTraffic?.id}
+              onSelect={(id) => setSelectedTrafficId(id)}
+            />
+          </div>
         </section>
 
-        <aside className="right-rail">
-          <section className="panel inspector">
-            <div className="panel-head">
-              <SectionTitle icon={Eye} label="Inspector" />
-              <Segmented
-                value={inspectorMode}
-                options={[
-                  { value: "summary", label: "Summary" },
-                  { value: "request", label: "Request" },
-                  { value: "response", label: "Response" },
-                  { value: "raw", label: "Raw" },
-                ]}
-                onChange={(value) => setInspectorMode(value as InspectorMode)}
-              />
-            </div>
-            <div className="inspector-body">
-              <Inspector item={selectedTraffic} mode={inspectorMode} />
-            </div>
-          </section>
+        <section className="panel workbench-column">
+          <div className="panel-head">
+            <SectionTitle icon={Activity} label="Request" />
+            <span className="counter">{selectedTraffic ? trafficItemRequestBadge(selectedTraffic) : "none"}</span>
+          </div>
+          <div className="column-body">
+            <RequestPane item={selectedTraffic} />
+          </div>
+        </section>
 
-          <section className="state-grid">
-            <AppStatePanel state={state} />
-            <NetworkStatePanel state={state} />
-          </section>
-        </aside>
+        <section className="panel workbench-column">
+          <div className="panel-head">
+            <SectionTitle icon={Eye} label="Response" />
+            <span className="counter">{selectedTraffic ? trafficItemStatus(selectedTraffic) || "event" : "none"}</span>
+          </div>
+          <div className="column-body">
+            <ResponsePane item={selectedTraffic} />
+          </div>
+        </section>
       </section>
 
       <footer className="app-footer">
@@ -388,6 +393,44 @@ function TrafficList({
   );
 }
 
+function RequestPane({ item }: { item?: TrafficItem }) {
+  if (!item) {
+    return <div className="empty-state">Run a scenario to inspect request traffic.</div>;
+  }
+  if (item.kind === "event") {
+    return <TraceEventCard title="Event" event={item.event} />;
+  }
+  return (
+    <HttpCard
+      title="Request"
+      badge={item.requestEvent.request?.method ?? "request"}
+      lines={requestLines(item.requestEvent)}
+      body={item.requestEvent.request?.body}
+    />
+  );
+}
+
+function ResponsePane({ item }: { item?: TrafficItem }) {
+  if (!item) {
+    return <div className="empty-state">Run a scenario to inspect response traffic.</div>;
+  }
+  if (item.kind === "event") {
+    return <div className="empty-state">Internal event only. No HTTP response.</div>;
+  }
+  return (
+    <div className="response-stack">
+      <HttpCard
+        title="Response"
+        badge={item.responseEvent?.response?.status ? String(item.responseEvent.response.status) : "..."}
+        lines={responseLines(item.responseEvent)}
+        body={item.responseEvent?.response?.body}
+      />
+      {item.childEvents.length > 0 ? <NestedEvents events={item.childEvents} /> : null}
+      <ExchangeSummary item={item} />
+    </div>
+  );
+}
+
 function HttpCard({
   title,
   badge,
@@ -434,57 +477,16 @@ function TraceEventCard({ title, event }: { title: string; event: TraceEvent }) 
   );
 }
 
-function Inspector({ item, mode }: { item?: TrafficItem; mode: InspectorMode }) {
+function ExchangeSummary({ item }: { item: TrafficItem }) {
   if (!item) {
-    return <div className="empty-state">No events</div>;
+    return null;
   }
-  if (mode === "raw") {
-    return <pre className="json-view">{JSON.stringify(rawTrafficItem(item), null, 2)}</pre>;
-  }
-  if (mode === "request") {
-    if (item.kind === "event") {
-      return <TraceEventCard title="Event" event={item.event} />;
-    }
-    return (
-      <HttpCard
-        title="Request"
-        badge={item.requestEvent.request?.method ?? "request"}
-        lines={requestLines(item.requestEvent)}
-        body={item.requestEvent.request?.body}
-      />
-    );
-  }
-  if (mode === "response") {
-    if (item.kind === "event") {
-      return <TraceEventCard title="Event" event={item.event} />;
-    }
-    return (
-      <HttpCard
-        title="Response"
-        badge={item.responseEvent?.response?.status ? String(item.responseEvent.response.status) : "..."}
-        lines={responseLines(item.responseEvent)}
-        body={item.responseEvent?.response?.body}
-      />
-    );
-  }
-
   const signal = networkSignalFromItem(item);
   const action = actionFromItem(item);
-  const facts = trafficItemFacts(item);
   const payloadFacts = payloadSummary(item, signal);
-  const childEvents = item.kind === "exchange" ? item.childEvents : [];
 
   return (
-    <div className="inspector-pretty">
-      <section className="summary-card">
-        <div className="summary-card__top">
-          <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
-          <strong>{trafficItemSummary(item)}</strong>
-        </div>
-        <KeyValues items={facts} />
-      </section>
-
-      {childEvents.length > 0 ? <NestedEvents events={childEvents} /> : null}
+    <div className="response-stack">
       {signal ? <SignalCard signal={signal} /> : null}
       {action ? <ActionCard action={action} /> : null}
       {payloadFacts.length > 0 ? (
@@ -724,6 +726,15 @@ function buildTrafficItems(trace: TraceEvent[]): TrafficItem[] {
   return items;
 }
 
+function defaultTrafficItem(items: TrafficItem[]) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index]?.kind === "exchange") {
+      return items[index];
+    }
+  }
+  return items[items.length - 1];
+}
+
 function trafficItemKind(item: TrafficItem) {
   if (item.kind === "event") return item.event.kind;
   if (item.requestEvent.kind === "webhook") return "webhook";
@@ -746,6 +757,11 @@ function trafficItemStatus(item: TrafficItem) {
   if (item.kind === "event") return "";
   const status = item.responseEvent?.response?.status;
   return status ? String(status) : "...";
+}
+
+function trafficItemRequestBadge(item: TrafficItem) {
+  if (item.kind === "event") return item.event.kind;
+  return item.requestEvent.request?.method ?? "request";
 }
 
 function requestLines(event: TraceEvent): Array<[string, ReactNode]> {
