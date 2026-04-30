@@ -195,6 +195,10 @@ h1 {
   padding: 12px;
 }
 
+.detail-column-wide {
+  grid-column: span 2;
+}
+
 .column-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -1088,6 +1092,10 @@ h1 {
 
   .workbench-column {
     overflow: visible;
+  }
+
+  .detail-column-wide {
+    grid-column: auto;
   }
 
   .column-body,

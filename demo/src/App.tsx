@@ -321,25 +321,39 @@ export function App() {
           </div>
         </section>
 
-        <section className="panel workbench-column">
-          <div className="panel-head">
-            <SectionTitle icon={Activity} label="Request" />
-            <span className="counter">{selectedTraffic ? trafficItemRequestBadge(selectedTraffic) : "none"}</span>
-          </div>
-          <div className="column-body">
-            <RequestPane item={selectedTraffic} />
-          </div>
-        </section>
+        {selectedTraffic?.kind === "event" ? (
+          <section className="panel workbench-column detail-column-wide">
+            <div className="panel-head">
+              <SectionTitle icon={Eye} label="Details" />
+              <span className="counter">{selectedTraffic.event.kind}</span>
+            </div>
+            <div className="column-body">
+              <EventDetailsPane item={selectedTraffic} />
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="panel workbench-column">
+              <div className="panel-head">
+                <SectionTitle icon={Activity} label="Request" />
+                <span className="counter">{selectedTraffic ? trafficItemRequestBadge(selectedTraffic) : "none"}</span>
+              </div>
+              <div className="column-body">
+                <RequestPane item={selectedTraffic} />
+              </div>
+            </section>
 
-        <section className="panel workbench-column">
-          <div className="panel-head">
-            <SectionTitle icon={Eye} label="Response" />
-            <span className="counter">{selectedTraffic ? trafficItemStatus(selectedTraffic) || "event" : "none"}</span>
-          </div>
-          <div className="column-body">
-            <ResponsePane item={selectedTraffic} />
-          </div>
-        </section>
+            <section className="panel workbench-column">
+              <div className="panel-head">
+                <SectionTitle icon={Eye} label="Response" />
+                <span className="counter">{selectedTraffic ? trafficItemStatus(selectedTraffic) || "event" : "none"}</span>
+              </div>
+              <div className="column-body">
+                <ResponsePane item={selectedTraffic} />
+              </div>
+            </section>
+          </>
+        )}
       </section>
 
       <footer className="app-footer">
@@ -431,6 +445,19 @@ function ResponsePane({ item }: { item?: TrafficItem }) {
   );
 }
 
+function EventDetailsPane({ item }: { item: Extract<TrafficItem, { kind: "event" }> }) {
+  const signal = networkSignalFromTrace(item.event);
+  const action = actionFromTrace(item.event);
+
+  return (
+    <div className="response-stack">
+      <TraceEventCard title={eventTitle(item.event)} event={item.event} />
+      {signal ? <SignalCard signal={signal} /> : null}
+      {action ? <ActionCard action={action} /> : null}
+    </div>
+  );
+}
+
 function HttpCard({
   title,
   badge,
@@ -456,6 +483,13 @@ function HttpCard({
       )}
     </section>
   );
+}
+
+function eventTitle(event: TraceEvent) {
+  if (event.kind === "state-change") return "State Change";
+  if (event.kind === "decision") return "Decision";
+  if (event.kind === "error") return "Error";
+  return "Event";
 }
 
 function TraceEventCard({ title, event }: { title: string; event: TraceEvent }) {
