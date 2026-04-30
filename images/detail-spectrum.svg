@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="290" viewBox="0 0 980 290" role="img" aria-labelledby="title desc">
   <title id="title">Network activity detail spectrum</title>
-  <desc id="desc">Notifications can range from opaque signals to source hints, query hints, and feed endpoint hints.</desc>
+  <desc id="desc">Notifications can range from opaque signals to source hints, explicit query hints, target URL hints, and feed endpoint hints.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -24,21 +24,27 @@
   <text x="155" y="172" text-anchor="middle" class="small">rediscover</text>
   <text x="155" y="194" text-anchor="middle" class="small">no source details</text>
 
-  <rect x="285" y="85" width="200" height="135" class="panel"/>
-  <text x="385" y="120" text-anchor="middle" class="label">Source hinted</text>
-  <text x="385" y="150" text-anchor="middle" class="small">organization ID</text>
-  <text x="385" y="172" text-anchor="middle" class="small">optional endpoint</text>
-  <text x="385" y="194" text-anchor="middle" class="small">client decides if new</text>
+  <rect x="285" y="85" width="155" height="135" class="panel"/>
+  <text x="362" y="120" text-anchor="middle" class="label">Source hinted</text>
+  <text x="362" y="150" text-anchor="middle" class="small">organization ID</text>
+  <text x="362" y="172" text-anchor="middle" class="small">optional endpoint</text>
+  <text x="362" y="194" text-anchor="middle" class="small">client decides if new</text>
 
-  <rect x="515" y="85" width="200" height="135" class="panel"/>
-  <text x="615" y="120" text-anchor="middle" class="label">Query hinted</text>
-  <text x="615" y="150" text-anchor="middle" class="small">resource types</text>
-  <text x="615" y="172" text-anchor="middle" class="small">time window</text>
-  <text x="615" y="194" text-anchor="middle" class="small">source or network query</text>
+  <rect x="465" y="85" width="155" height="135" class="panel"/>
+  <text x="542" y="120" text-anchor="middle" class="label">Query hinted</text>
+  <text x="542" y="150" text-anchor="middle" class="small">source-query URL</text>
+  <text x="542" y="172" text-anchor="middle" class="small">substitute patient</text>
+  <text x="542" y="194" text-anchor="middle" class="small">run explicit search</text>
 
-  <rect x="745" y="85" width="200" height="135" class="panel"/>
-  <text x="845" y="120" text-anchor="middle" class="label">Feed hinted</text>
-  <text x="845" y="150" text-anchor="middle" class="small">feed endpoint</text>
-  <text x="845" y="172" text-anchor="middle" class="small">patient data feed topic</text>
-  <text x="845" y="194" text-anchor="middle" class="small">skip broad discovery</text>
+  <rect x="645" y="85" width="155" height="135" class="panel"/>
+  <text x="722" y="120" text-anchor="middle" class="label">Target hinted</text>
+  <text x="722" y="150" text-anchor="middle" class="small">target-url</text>
+  <text x="722" y="172" text-anchor="middle" class="small">authorize at source</text>
+  <text x="722" y="194" text-anchor="middle" class="small">read one resource</text>
+
+  <rect x="825" y="85" width="155" height="135" class="panel"/>
+  <text x="902" y="120" text-anchor="middle" class="label">Feed hinted</text>
+  <text x="902" y="150" text-anchor="middle" class="small">feed endpoint</text>
+  <text x="902" y="172" text-anchor="middle" class="small">feed topic</text>
+  <text x="902" y="194" text-anchor="middle" class="small">subscribe</text>
 </svg>
