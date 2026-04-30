@@ -600,7 +600,7 @@ h1 {
   color: #17212b;
   display: grid;
   gap: 10px;
-  grid-template-columns: 28px 86px minmax(0, 1fr) 42px;
+  grid-template-columns: 24px 68px 86px minmax(0, 1fr) 42px;
   min-height: 56px;
   padding: 8px 10px;
   text-align: left;
@@ -759,6 +759,14 @@ h1 {
   color: #7a8792;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.trace-time {
+  color: #435260;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .trace-main {
@@ -1136,9 +1144,10 @@ h1 {
   }
 
   .trace-row {
-    grid-template-columns: 28px minmax(0, 1fr) 44px;
+    grid-template-columns: 64px minmax(0, 1fr) 44px;
   }
 
+  .trace-index,
   .trace-row .kind {
     display: none;
   }

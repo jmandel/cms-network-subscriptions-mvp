@@ -71,8 +71,14 @@ export function createInitialState(): SimulationState {
       disclosurePolicy: "data-holder-endpoint",
       eventCounter: 0,
       dropNextWebhook: false,
+      dropNextHeartbeat: false,
       handles: {},
       events: {},
+    },
+    clock: {
+      now: "2026-04-30T14:00:00Z",
+      heartbeatIntervalMinutes: 5,
+      heartbeatGraceMinutes: 1,
     },
     sources: sourceMap,
     resources: {

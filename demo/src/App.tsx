@@ -99,10 +99,10 @@ const scenarios: Array<{
   },
   {
     id: "missed-activity",
-    label: "Missed Event",
-    short: "Detect a gap.",
-    lesson: "Standard Subscription event numbers let the client notice missed webhooks and fall back to discovery plus targeted source queries.",
-    steps: ["First webhook is dropped", "Next event number has a gap", "Client runs recovery discovery"],
+    label: "Missed Heartbeat",
+    short: "Recover from silence.",
+    lesson: "Standard Subscription heartbeats let the client notice when the activity stream goes quiet and fall back to discovery plus connected data-holder queries.",
+    steps: ["Heartbeat arrives", "Next heartbeat is missed", "Client runs recovery discovery"],
     icon: Eye,
   },
   {
@@ -394,6 +394,7 @@ function TrafficList({
             type="button"
           >
             <span className="trace-index">{index + 1}</span>
+            <span className="trace-time">{formatClockTime(trafficItemAt(item))}</span>
             <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
             <span className="trace-main">
               <strong>{trafficItemSummary(item)}</strong>
@@ -501,6 +502,7 @@ function TraceEventCard({ title, event }: { title: string; event: TraceEvent }) 
       </div>
       <KeyValues
         items={[
+          ["time", formatClockDateTime(event.at)],
           ["actor", actorLabel(event.actor)],
           ["summary", event.summary],
           ["correlation", event.correlationId ?? "none"],
@@ -593,6 +595,8 @@ function AppStatePanel({ state }: { state: Snapshot["state"] }) {
           ["patient", state.app.patientId],
           ["network sub", state.app.networkSubscriptionId ?? "none"],
           ["last event", String(state.app.lastNetworkEventNumber)],
+          ["last heartbeat", formatClockDateTime(state.app.lastNetworkHeartbeatAt)],
+          ["next heartbeat due", formatClockDateTime(state.app.nextNetworkHeartbeatDueAt)],
           ["known data holders", String(knownSources.length)],
           ["data feed subs", String(feedSubscriptions.length)],
         ]}
@@ -617,9 +621,11 @@ function NetworkStatePanel({ state }: { state: Snapshot["state"] }) {
       <KeyValues
         items={[
           ["disclosure", state.network.disclosurePolicy],
+          ["clock", formatClockDateTime(state.clock.now)],
           ["event count", String(state.network.eventCounter)],
           ["handles", String(handles.length)],
           ["drop next", state.network.dropNextWebhook ? "yes" : "no"],
+          ["drop heartbeat", state.network.dropNextHeartbeat ? "yes" : "no"],
         ]}
       />
       <div className="source-health">
@@ -778,7 +784,11 @@ function trafficItemSummary(item: TrafficItem) {
 function trafficItemSubhead(item: TrafficItem) {
   if (item.kind === "event") return flowLabel(item.event);
   const request = item.requestEvent.request;
-  return `${actorLabel(request?.from)} -> ${actorLabel(request?.to)} · ${request?.method} ${request?.path}`;
+  const base = `${actorLabel(request?.from)} -> ${actorLabel(request?.to)} · ${request?.method} ${request?.path}`;
+  const notableEvents = item.childEvents
+    .filter((event) => event.kind !== "state-change" || event.summary.includes("Recovery"))
+    .map((event) => event.summary);
+  return notableEvents.length > 0 ? `${base} · ${notableEvents.join(" · ")}` : base;
 }
 
 function trafficItemStatus(item: TrafficItem) {
@@ -792,9 +802,28 @@ function trafficItemRequestBadge(item: TrafficItem) {
   return item.requestEvent.request?.method ?? "request";
 }
 
+function trafficItemAt(item: TrafficItem) {
+  return item.kind === "event" ? item.event.at : item.requestEvent.at;
+}
+
+function formatClockTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().slice(11, 19);
+}
+
+function formatClockDateTime(value?: string) {
+  if (!value) return "none";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().replace(".000Z", "Z").replace("T", " ");
+}
+
 function requestLines(event: TraceEvent): Array<[string, ReactNode]> {
   const request = event.request;
   return [
+    ["time", formatClockDateTime(event.at)],
     ["flow", request ? `${actorLabel(request.from)} -> ${actorLabel(request.to)}` : "none"],
     ["url", request ? `${request.method} ${requestDisplayPath(request)}` : "none"],
     ["headers", compactRecord(request?.headers)],
@@ -806,6 +835,7 @@ function requestLines(event: TraceEvent): Array<[string, ReactNode]> {
 function responseLines(event?: TraceEvent): Array<[string, ReactNode]> {
   const response = event?.response;
   return [
+    ["time", formatClockDateTime(event?.at)],
     ["status", response?.status ? String(response.status) : "pending"],
     ["headers", compactRecord(response?.headers)],
     ["correlation", event?.correlationId ?? event?.request?.correlationId ?? "none"],
@@ -852,6 +882,7 @@ function flowLabel(event: TraceEvent) {
 function trafficItemFacts(item: TrafficItem): Array<[string, ReactNode]> {
   if (item.kind === "event") {
     return [
+      ["time", formatClockDateTime(item.event.at)],
       ["flow", flowLabel(item.event)],
       ["http", item.event.request ? `${item.event.request.method} ${item.event.request.path}` : "none"],
       ["status", item.event.response?.status ? String(item.event.response.status) : "none"],
@@ -860,6 +891,7 @@ function trafficItemFacts(item: TrafficItem): Array<[string, ReactNode]> {
   }
   const request = item.requestEvent.request;
   return [
+    ["time", formatClockDateTime(item.requestEvent.at)],
     ["flow", `${actorLabel(request?.from)} -> ${actorLabel(request?.to)}`],
     ["http", request ? `${request.method} ${request.path}` : "none"],
     ["status", trafficItemStatus(item)],
@@ -966,8 +998,9 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
     const focus = status?.notificationEvent?.[0]?.focus;
     return [
       ["bundle", body.type ?? "Bundle"],
+      ["notification", status?.type ?? "none"],
       ["topic", status?.topic ?? "none"],
-      ["event", String(status?.notificationEvent?.[0]?.eventNumber ?? "none")],
+      ["event", String(status?.notificationEvent?.[0]?.eventNumber ?? status?.eventsSinceSubscriptionStart ?? "none")],
       ["focus", focus?.reference ?? "none"],
     ];
   }

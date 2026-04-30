@@ -8,8 +8,8 @@ import type {
   TraceEvent,
 } from "./types";
 
-function now() {
-  return new Date().toISOString();
+function now(state: SimulationState) {
+  return state.clock?.now ?? new Date().toISOString();
 }
 
 function id(prefix: string, count: number) {
@@ -57,7 +57,7 @@ export class SimKernel {
     this.traceCount += 1;
     this.state.trace.push({
       id: id("trace", this.traceCount),
-      at: now(),
+      at: now(this.state),
       ...event,
     });
   }
@@ -97,6 +97,7 @@ export class SimKernel {
     const context: SimContext = {
       send: this.send,
       trace: (event) => this.trace({ ...event, correlationId: event.correlationId ?? correlationId }),
+      now: () => now(this.state),
       state: this.state,
     };
 

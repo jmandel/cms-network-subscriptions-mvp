@@ -26,6 +26,8 @@ bun run dev
 - Data-holder FHIR endpoints independently authorize `/metadata`, search, read,
   and Patient Data Feed subscription requests.
 - Patient Data Feed notifications remain endpoint-level and id-only.
+- The simulated clock uses fixed timestamps, so heartbeat webhooks and recovery
+  checks appear in the event log at understandable points in time.
 
 Token requests show OAuth token-exchange-style form fields with a placeholder
 SMART Permission Ticket in `subject_token`. The simulator does not validate the
@@ -48,6 +50,8 @@ self-access authorization and IAL2 identity facts could be conveyed.
 | `POST /network/token` | Mock network token response with network-scoped patient context. |
 | `POST /network/fhir/Subscription` | Create the network activity subscription. |
 | `POST /app/network-activity` | Client webhook receiver for network activity. |
+| `POST /network/internal/heartbeat` | Demo-only trigger for a network Subscription heartbeat webhook. |
+| `POST /app/internal/heartbeat-check` | Demo-only trigger for the client checking whether a heartbeat deadline was missed. |
 | `POST /network/fhir/$data-holder-discovery` | FHIR-style discovery operation. The request is a `Parameters` resource with network-scoped `patient` and optional `activity-handle`; the response is a searchset `Bundle` of `Organization` and `Endpoint` resources. |
 | `POST /data-holders/:id/token` | Mock data-holder token response with endpoint-scoped patient context. |
 | `GET /data-holders/:id/fhir/metadata` | Discover data-holder FHIR capabilities. |
@@ -65,8 +69,8 @@ self-access authorization and IAL2 identity facts could be conveyed.
 | Endpoint Hint | Webhook names a data-holder endpoint; the client authorizes there, checks `/metadata`, and creates a Patient Data Feed subscription. |
 | Known Data Holder | Webhook names a known data-holder endpoint; the client skips RLS and runs an ordinary Encounter search there. |
 | Activity Tags | Webhook includes activity-type tags; the client uses recognized tags to choose ordinary data-holder follow-up. |
-| Patient Data Feed | Data-holder endpoint sends an id-only Encounter notification; the client reads the referenced Encounter. |
-| Missed Event | A dropped webhook creates an event-number gap; the client falls back to broad discovery, which returns multiple visible data holders, then runs connected data-holder queries. |
+| Patient Data Feed | A network heartbeat arrives between setup and later data-holder activity; the data-holder endpoint then sends an id-only Encounter notification and the client reads the referenced Encounter. |
+| Missed Heartbeat | A heartbeat is dropped; after the grace period, the client runs broad discovery, receives multiple visible data holders, and runs connected data-holder queries. |
 | Sensitive Policy | A sensitive data holder forces an opaque signal and RLS withholds the data-holder detail. |
 
 ## UI Shape
@@ -74,7 +78,7 @@ self-access authorization and IAL2 identity facts could be conveyed.
 The main desktop workspace uses three scrollable columns:
 
 1. **Events**: a chronological list of exchanges, webhooks, decisions, and state
-   changes.
+   changes with fixed simulation timestamps.
 2. **Request**: the selected request or internal event details.
 3. **Response**: the selected response, payload summary, or merged details for
    non-request events.

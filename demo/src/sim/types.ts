@@ -59,6 +59,7 @@ export interface RouteHandler {
 export interface SimContext {
   send(input: SendInput): SimResponse;
   trace(event: Omit<TraceEvent, "id" | "at">): void;
+  now(): string;
   state: SimulationState;
 }
 
@@ -146,6 +147,8 @@ export interface SimulationState {
     feedSubscriptions: Record<string, FeedSubscription>;
     sourceTokens: Record<string, { token: string; patient: string }>;
     lastNetworkEventNumber: number;
+    lastNetworkHeartbeatAt?: string;
+    nextNetworkHeartbeatDueAt?: string;
     seenActivityIds: string[];
     pendingActions: PendingAction[];
     pendingReads: PendingRead[];
@@ -157,8 +160,14 @@ export interface SimulationState {
     subscriptionEndpoint?: string;
     subscriptionId?: string;
     dropNextWebhook: boolean;
+    dropNextHeartbeat: boolean;
     handles: Record<string, { sourceId: string; patientId: string; createdAt: string }>;
     events: Record<number, { eventNumber: number; signal: NetworkActivitySignal; createdAt: string }>;
+  };
+  clock: {
+    now: string;
+    heartbeatIntervalMinutes: number;
+    heartbeatGraceMinutes: number;
   };
   sources: Record<string, SourceRecord>;
   resources: Record<string, Record<string, unknown[]>>;

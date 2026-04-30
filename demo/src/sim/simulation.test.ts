@@ -117,11 +117,31 @@ test("known data-holder scenario runs ordinary source query without RLS", () => 
   expect(sim.state.app.knownSources.valley?.discoveredBy).toBe("data-holder-query");
 });
 
-test("missed webhook triggers discovery and connected data-holder recovery", () => {
+test("patient-data-feed scenario shows heartbeat between spaced actions", () => {
+  const sim = new NetworkActivitySimulation();
+  sim.runScenario("patient-data-feed");
+  expect(sim.state.trace.some((event) => event.summary === "Five minutes later" && event.at === "2026-04-30T14:05:00.000Z")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Deliver network heartbeat")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Received network heartbeat")).toBe(true);
+  expect(sim.state.app.lastNetworkHeartbeatAt).toBe("2026-04-30T14:05:00.000Z");
+  expect(sim.state.app.nextNetworkHeartbeatDueAt).toBe("2026-04-30T14:11:00.000Z");
+  expect(
+    sim.state.trace.some(
+      (event) =>
+        event.summary === "Deliver Valley Clinic Encounter notification" &&
+        event.at === "2026-04-30T14:22:00.000Z",
+    ),
+  ).toBe(true);
+});
+
+test("missed heartbeat triggers discovery and connected data-holder recovery", () => {
   const sim = new NetworkActivitySimulation();
   sim.runScenario("missed-activity");
-  expect(sim.state.trace.some((event) => event.summary.includes("Dropped webhook"))).toBe(true);
-  expect(sim.state.trace.some((event) => event.summary.includes("Detected network event gap"))).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Deliver network heartbeat")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Received network heartbeat")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Dropped network heartbeat")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary === "Missed network heartbeat; run recovery discovery")).toBe(true);
+  expect(sim.state.trace.some((event) => event.summary.includes("Detected network event gap"))).toBe(false);
   expect(sim.state.trace.some((event) => event.summary === "Retrieve missed activity event range")).toBe(false);
   expect(sim.state.trace.some((event) => event.request?.path.endsWith("/$events"))).toBe(false);
   const discovery = sim.state.trace.find(
@@ -132,7 +152,9 @@ test("missed webhook triggers discovery and connected data-holder recovery", () 
   expect(extensionValue(discovery?.response?.body, "demo-handle-used")).toBe(false);
   expect(sim.state.trace.some((event) => event.summary === "Recovery query at Valley Clinic")).toBe(true);
   expect(sim.state.trace.some((event) => event.summary === "Recovery query at Mercy Hospital Phoenix")).toBe(true);
-  expect(sim.state.app.lastNetworkEventNumber).toBe(2);
+  expect(sim.state.app.lastNetworkEventNumber).toBe(0);
+  expect(sim.state.app.lastNetworkHeartbeatAt).toBe("2026-04-30T14:05:00.000Z");
+  expect(sim.state.app.nextNetworkHeartbeatDueAt).toBe("2026-04-30T14:22:00.000Z");
 });
 
 test("sensitive data-holder stays withheld after opaque signal", () => {

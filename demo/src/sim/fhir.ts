@@ -169,6 +169,29 @@ export function networkActivityBundle(
   return networkActivityEventsBundle([{ signal, eventNumber }], subscriptionId, content);
 }
 
+export function networkHeartbeatBundle(eventNumber: number, subscriptionId: string, timestamp: string) {
+  return {
+    resourceType: "Bundle",
+    type: "history",
+    timestamp,
+    entry: [
+      {
+        fullUrl: uuidUrn(),
+        request: { method: "GET", url: `Subscription/${subscriptionId}/$status` },
+        response: { status: "200" },
+        resource: {
+          resourceType: "SubscriptionStatus",
+          status: "active",
+          type: "heartbeat",
+          eventsSinceSubscriptionStart: eventNumber,
+          subscription: { reference: `https://network.example.org/fhir/Subscription/${subscriptionId}` },
+          topic: NETWORK_ACTIVITY_TOPIC,
+        },
+      },
+    ],
+  };
+}
+
 export function networkActivityEventsBundle(
   events: Array<{ signal: NetworkActivitySignal; eventNumber: number }>,
   subscriptionId: string,
@@ -214,11 +237,17 @@ export function networkActivityEventsBundle(
   };
 }
 
-export function patientDataFeedBundle(source: SourceRecord, eventNumber: number, resourceType: string, resourceId: string) {
+export function patientDataFeedBundle(
+  source: SourceRecord,
+  eventNumber: number,
+  resourceType: string,
+  resourceId: string,
+  timestamp = new Date().toISOString(),
+) {
   return {
     resourceType: "Bundle",
     type: "subscription-notification",
-    timestamp: new Date().toISOString(),
+    timestamp,
     entry: [
       {
         fullUrl: uuidUrn(),
@@ -230,7 +259,7 @@ export function patientDataFeedBundle(source: SourceRecord, eventNumber: number,
           notificationEvent: [
             {
               eventNumber,
-              timestamp: new Date().toISOString(),
+              timestamp,
               focus: {
                 reference: `${source.endpoint}/${resourceType}/${resourceId}`,
                 type: resourceType,

@@ -16,6 +16,7 @@ import {
   dataHolderDiscoveryParameters,
   endpoint,
   networkActivityBundle,
+  networkHeartbeatBundle,
   organization,
   patientDataFeedBundle,
   parseNetworkActivityBundles,
@@ -155,6 +156,10 @@ type ActivityHintLevel =
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
+function addMinutes(instant: string, minutes: number) {
+  return new Date(new Date(instant).getTime() + minutes * 60_000).toISOString();
+}
+
 function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
   if (signal.dataHolderEndpoint) return "endpoint-hinted";
   if (signal.dataHolderOrganization) return "organization-hinted";
@@ -211,6 +216,31 @@ export class NetworkActivitySimulation {
     this.state.trace.length = 0;
   }
 
+  private now() {
+    return this.state.clock.now;
+  }
+
+  private advanceTime(minutes: number, summary: string) {
+    this.state.clock.now = addMinutes(this.state.clock.now, minutes);
+    this.kernel.trace({
+      kind: "state-change",
+      actor: "simulation",
+      summary,
+      details: { now: this.now(), advancedMinutes: minutes },
+    });
+  }
+
+  private heartbeatDueAfter(base: string) {
+    return addMinutes(
+      base,
+      this.state.clock.heartbeatIntervalMinutes + this.state.clock.heartbeatGraceMinutes,
+    );
+  }
+
+  private expectNextHeartbeat(base = this.now()) {
+    this.state.app.nextNetworkHeartbeatDueAt = this.heartbeatDueAfter(base);
+  }
+
   bootstrap() {
     if (this.state.app.networkSubscriptionId) {
       this.kernel.trace({
@@ -254,6 +284,7 @@ export class NetworkActivitySimulation {
     });
     const subscriptionBody = subscription.body as { id: string };
     this.state.app.networkSubscriptionId = subscriptionBody.id;
+    this.expectNextHeartbeat();
   }
 
   runScenario(id: ScenarioId) {
@@ -295,16 +326,22 @@ export class NetworkActivitySimulation {
         this.injectNetworkEvent("valley", ["care-relationship-detected", "visit-related"], "confirmed");
         this.processPendingActions();
       }
+      this.advanceTime(5, "Five minutes later");
+      this.sendNetworkHeartbeat();
+      this.advanceTime(17, "Later encounter activity at the data holder");
       this.injectSourceEvent("valley", "Encounter", "enc-valley-1");
       this.processPendingReads();
     }
 
     if (id === "missed-activity") {
       this.setDisclosurePolicy("opaque");
-      this.state.network.dropNextWebhook = true;
-      this.injectNetworkEvent("valley", ["activity-detected", "visit-related"], "probable");
-      this.processPendingActions();
-      this.injectNetworkEvent("mercy", ["activity-detected", "visit-related"], "probable");
+      this.advanceTime(5, "Heartbeat interval elapses");
+      this.sendNetworkHeartbeat();
+      this.advanceTime(5, "Next heartbeat interval elapses");
+      this.state.network.dropNextHeartbeat = true;
+      this.sendNetworkHeartbeat();
+      this.advanceTime(6, "Heartbeat grace period expires");
+      this.checkNetworkHeartbeat();
       this.processPendingActions();
     }
 
@@ -340,6 +377,33 @@ export class NetworkActivitySimulation {
       headers: { "content-type": "application/json" },
       body: { resourceType, id },
       summary: `Simulate Patient Data Feed ${resourceType} at ${this.state.sources[sourceId].name}`,
+    });
+  }
+
+  sendNetworkHeartbeat() {
+    this.kernel.send({
+      from: "simulation",
+      to: "network",
+      method: "POST",
+      path: "/network/internal/heartbeat",
+      headers: { "content-type": "application/json" },
+      body: { scheduledAt: this.now() },
+      summary: "Simulate network heartbeat",
+    });
+  }
+
+  checkNetworkHeartbeat() {
+    this.kernel.send({
+      from: "simulation",
+      to: "client",
+      method: "POST",
+      path: "/app/internal/heartbeat-check",
+      headers: { "content-type": "application/json" },
+      body: {
+        now: this.now(),
+        dueAt: this.state.app.nextNetworkHeartbeatDueAt,
+      },
+      summary: "Check network heartbeat deadline",
     });
   }
 
@@ -549,13 +613,13 @@ export class NetworkActivitySimulation {
         context.state.network.handles[handle] = {
           sourceId: source.id,
           patientId: PATIENT_ID,
-          createdAt: new Date().toISOString(),
+          createdAt: context.now(),
         };
         const signal = this.buildSignal(source, eventNumber, handle, body.activityType, body.confidence);
         context.state.network.events[eventNumber] = {
           eventNumber,
           signal,
-          createdAt: new Date().toISOString(),
+          createdAt: context.now(),
         };
         const bundle = networkActivityBundle(
           signal,
@@ -594,6 +658,48 @@ export class NetworkActivitySimulation {
     });
 
     this.kernel.register({
+      actor: "network",
+      method: "POST",
+      pathPattern: "/network/internal/heartbeat",
+      handle: (request, context) => {
+        const timestamp = context.now();
+        const bundle = networkHeartbeatBundle(
+          context.state.network.eventCounter,
+          context.state.network.subscriptionId ?? "network-sub-1",
+          timestamp,
+        );
+
+        if (context.state.network.dropNextHeartbeat || context.state.network.dropNextWebhook) {
+          context.state.network.dropNextHeartbeat = false;
+          context.state.network.dropNextWebhook = false;
+          context.trace({
+            kind: "error",
+            actor: "network",
+            summary: "Dropped network heartbeat",
+            details: { timestamp, scheduledAt: (request.body as any)?.scheduledAt },
+          });
+          return json(request, 202, { accepted: true, dropped: true, heartbeat: true });
+        }
+
+        context.send({
+          from: "network",
+          to: "client",
+          method: "POST",
+          path: "/app/network-activity",
+          headers: {
+            "content-type": "application/fhir+json",
+            "x-webhook-secret": "client-generated-secret",
+          },
+          body: bundle,
+          kind: "webhook",
+          correlationId: `heartbeat-${timestamp}`,
+          summary: "Deliver network heartbeat",
+        });
+        return json(request, 202, { accepted: true, delivered: true, heartbeat: true });
+      },
+    });
+
+    this.kernel.register({
       actor: "client",
       method: "POST",
       pathPattern: "/app/network-activity",
@@ -611,6 +717,22 @@ export class NetworkActivitySimulation {
           });
         }
         const status = (request.body as any)?.entry?.[0]?.resource;
+        if (status?.type === "heartbeat") {
+          const timestamp = context.now();
+          context.state.app.lastNetworkHeartbeatAt = timestamp;
+          context.state.app.nextNetworkHeartbeatDueAt = this.heartbeatDueAfter(timestamp);
+          context.trace({
+            kind: "decision",
+            actor: "client",
+            summary: "Received network heartbeat",
+            details: {
+              heartbeatAt: timestamp,
+              nextDueAt: context.state.app.nextNetworkHeartbeatDueAt,
+              eventsSinceSubscriptionStart: status.eventsSinceSubscriptionStart,
+            },
+          });
+          return json(request, 202, { accepted: true, heartbeat: true });
+        }
         const eventNumbers =
           status?.notificationEvent?.map?.((event: any) => Number(event.eventNumber)).filter(Boolean) ?? [];
         const eventNumber = Math.max(0, ...eventNumbers);
@@ -635,7 +757,7 @@ export class NetworkActivitySimulation {
               topic: NETWORK_ACTIVITY_TOPIC,
               activityId: `recovery-before-${eventNumber}`,
               patient: { id: PATIENT_ID, scope: "network" },
-              observedAt: new Date().toISOString(),
+              observedAt: context.now(),
               activityType: [cmsActivity("activity-detected")],
             },
             action: {
@@ -667,6 +789,54 @@ export class NetworkActivitySimulation {
         }
         context.state.app.lastNetworkEventNumber = Math.max(context.state.app.lastNetworkEventNumber, eventNumber);
         return json(request, 202, { accepted: true });
+      },
+    });
+
+    this.kernel.register({
+      actor: "client",
+      method: "POST",
+      pathPattern: "/app/internal/heartbeat-check",
+      handle: (request, context) => {
+        const dueAt = context.state.app.nextNetworkHeartbeatDueAt;
+        const missed = Boolean(dueAt && context.now() > dueAt);
+        if (missed) {
+          const recoveryId = `heartbeat-recovery-${context.now().replace(/[-:.TZ]/g, "")}`;
+          context.trace({
+            kind: "decision",
+            actor: "client",
+            summary: "Missed network heartbeat; run recovery discovery",
+            details: {
+              checkedAt: context.now(),
+              dueAt,
+              lastHeartbeatAt: context.state.app.lastNetworkHeartbeatAt,
+            },
+          });
+          context.state.app.pendingActions.push({
+            signal: {
+              topic: NETWORK_ACTIVITY_TOPIC,
+              activityId: recoveryId,
+              patient: { id: PATIENT_ID, scope: "network" },
+              observedAt: context.now(),
+              activityType: [cmsActivity("activity-detected")],
+            },
+            action: {
+              code: "recover-network",
+            },
+          });
+          context.state.app.nextNetworkHeartbeatDueAt = this.heartbeatDueAfter(context.now());
+          return json(request, 202, { checkedAt: context.now(), missed: true, dueAt });
+        }
+        context.trace({
+          kind: "decision",
+          actor: "client",
+          summary: "Network heartbeat deadline not yet missed",
+          details: {
+            checkedAt: context.now(),
+            dueAt,
+            lastHeartbeatAt: context.state.app.lastNetworkHeartbeatAt,
+          },
+        });
+        return json(request, 202, { checkedAt: context.now(), missed: false, dueAt });
       },
     });
 
@@ -798,7 +968,7 @@ export class NetworkActivitySimulation {
         const source = context.state.sources[pathPart(request.path, 1)];
         const body = request.body as { resourceType: "Encounter" | "Appointment"; id: string };
         const eventNumber = Object.keys(context.state.app.feedSubscriptions).length + context.state.network.eventCounter + 1;
-        const bundle = patientDataFeedBundle(source, eventNumber, body.resourceType, body.id);
+        const bundle = patientDataFeedBundle(source, eventNumber, body.resourceType, body.id, context.now());
         context.send({
           from: "data-holder",
           to: "client",
@@ -856,12 +1026,12 @@ export class NetworkActivitySimulation {
       topic: NETWORK_ACTIVITY_TOPIC,
       activityId: opaqueToken("act", eventNumber),
       patient: { id: PATIENT_ID, scope: "network" },
-      observedAt: new Date().toISOString(),
+      observedAt: this.now(),
       activityType: activityType.map(cmsActivity),
       confidence,
       activityHandle: {
         value: handle,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        expiresAt: addMinutes(this.now(), 15),
       },
     };
 
