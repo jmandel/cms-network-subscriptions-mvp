@@ -50,8 +50,8 @@
 
   <!-- Opaque fallback through discovery or network query. -->
   <path d="M240 282 C305 325 340 400 405 400" class="dash"/>
-  <rect x="256" y="333" width="205" height="24" class="tag-bg"/>
-  <text x="265" y="350" class="small">3a. follow-up-discovery</text>
+  <rect x="238" y="318" width="160" height="22" class="tag-bg"/>
+  <text x="246" y="334" class="small">3a. follow-up-discovery</text>
 
   <path d="M635 400 C700 400 715 260 785 260" class="dash"/>
   <rect x="666" y="339" width="142" height="22" class="tag-bg"/>
