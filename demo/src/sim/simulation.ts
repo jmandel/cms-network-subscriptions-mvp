@@ -9,7 +9,6 @@ import {
   createNetworkSubscription,
   createSourceSubscription,
   networkActivityBundle,
-  networkActivityEventsBundle,
   organization,
   patientDataFeedBundle,
   parseNetworkActivityBundles,
@@ -68,16 +67,16 @@ function opaqueToken(prefix: string, eventNumber: number) {
 type ActivityHintLevel =
   | "discovery-hinted"
   | "organization-hinted"
+  | "endpoint-hinted"
   | "search-hinted"
-  | "read-hinted"
-  | "subscription-hinted";
+  | "read-hinted";
 
 const ACTIVITY_WINDOW_START = "2026-04-29T15:00:00Z";
 
 function hintLevelForSignal(signal: NetworkActivitySignal): ActivityHintLevel {
   if (signal.followUpRead?.length) return "read-hinted";
   if (signal.followUpSearch?.length) return "search-hinted";
-  if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription-hinted";
+  if (signal.dataHolderEndpoint) return "endpoint-hinted";
   if (signal.dataHolderOrganization) return "organization-hinted";
   return "discovery-hinted";
 }
@@ -174,8 +173,8 @@ export class NetworkActivitySimulation {
       this.processPendingActions();
     }
 
-    if (id === "subscription-hinted") {
-      this.setDisclosurePolicy("follow-up-subscribe");
+    if (id === "endpoint-hinted") {
+      this.setDisclosurePolicy("data-holder-endpoint");
       this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
       this.processPendingActions();
     }
@@ -195,7 +194,7 @@ export class NetworkActivitySimulation {
 
     if (id === "patient-data-feed") {
       if (!this.state.app.feedSubscriptions.valley) {
-        this.setDisclosurePolicy("follow-up-subscribe");
+        this.setDisclosurePolicy("data-holder-endpoint");
         this.injectNetworkEvent("valley", "care-relationship-detected", "confirmed");
         this.processPendingActions();
       }
@@ -213,7 +212,7 @@ export class NetworkActivitySimulation {
     }
 
     if (id === "sensitive-data-holder") {
-      this.setDisclosurePolicy("follow-up-subscribe");
+      this.setDisclosurePolicy("data-holder-endpoint");
       this.injectNetworkEvent("northside", "activity-detected", "possible");
       this.processPendingActions();
     }
@@ -289,7 +288,7 @@ export class NetworkActivitySimulation {
         });
       }
 
-      if (action.code === "discover-network" || action.code === "rediscover") {
+      if (action.code === "discover-network" || action.code === "rediscover" || action.code === "recover-network") {
         const response = this.kernel.send({
           from: "client",
           to: "rls",
@@ -298,13 +297,16 @@ export class NetworkActivitySimulation {
           headers: { "content-type": "application/json" },
           body: {
             patient: signal.patient.id,
-            activityHandle: signal.handle?.value,
+            "activity-handle": signal.handle?.value,
             followUpDiscovery: action.followUpDiscovery ?? signal.followUpDiscovery,
           },
           correlationId: signal.activityId,
           summary: "Run network discovery/RLS",
         });
-        this.learnSourcesFromResponse(response, "RLS");
+        const discovered = this.learnSourcesFromResponse(response, "RLS");
+        if (action.code === "recover-network") {
+          this.queryDiscoveredSourcesWithoutFeed(discovered, signal.activityId);
+        }
       }
 
       if (action.code === "search-data-holder") {
@@ -334,13 +336,32 @@ export class NetworkActivitySimulation {
         });
       }
 
-      if (action.code === "subscribe-data-holder") {
+      if (action.code === "inspect-data-holder") {
         const source = this.sourceFromSignal(signal);
         if (!source) {
-          this.traceDecision("No data-holder FHIR endpoint available for subscribe-data-holder", { signal });
+          this.traceDecision("No data-holder FHIR endpoint available for inspect-data-holder", { signal });
           continue;
         }
         const token = this.ensureSourceToken(source);
+        const metadata = this.kernel.send({
+          from: "client",
+          to: "data-holder",
+          method: "GET",
+          path: `/data-holders/${source.id}/fhir/metadata`,
+          headers: { authorization: `Bearer ${token.token}` },
+          correlationId: signal.activityId,
+          summary: `Discover ${source.name} FHIR capabilities`,
+        });
+        const supportsPatientDataFeed = Boolean((metadata.body as any)?.rest?.[0]?.resource?.some?.(
+          (resource: any) =>
+            resource.type === "Subscription" &&
+            resource.supportedProfile?.includes?.(PATIENT_DATA_FEED_TOPIC),
+        ));
+        if (!supportsPatientDataFeed) {
+          this.learnSource(source, "data-holder-endpoint");
+          this.traceDecision(`${source.name} does not advertise Patient Data Feed support`, { metadata: metadata.body });
+          continue;
+        }
         const response = this.kernel.send({
           from: "client",
           to: "data-holder",
@@ -362,7 +383,7 @@ export class NetworkActivitySimulation {
           endpoint: source.endpoint,
           status: body.status,
         };
-        this.learnSource(source, "follow-up-subscribe");
+        this.learnSource(source, "metadata");
       }
     }
   }
@@ -472,7 +493,7 @@ export class NetworkActivitySimulation {
           signal,
           eventNumber,
           context.state.network.subscriptionId ?? "network-sub-1",
-          "empty",
+          "full-resource",
         );
 
         if (context.state.network.dropNextWebhook) {
@@ -491,51 +512,16 @@ export class NetworkActivitySimulation {
           to: "client",
           method: "POST",
           path: "/app/network-activity",
-          headers: { "content-type": "application/fhir+json" },
+          headers: {
+            "content-type": "application/fhir+json",
+            "x-webhook-secret": "client-generated-secret",
+          },
           body: bundle,
           kind: "webhook",
           correlationId: signal.activityId,
-          summary: `Wake up client for network activity ${eventNumber}`,
+          summary: `Deliver network activity signal ${eventNumber}`,
         });
         return json(request, 202, { accepted: true, delivered: true, eventNumber });
-      },
-    });
-
-    this.kernel.register({
-      actor: "network",
-      method: "GET",
-      pathPattern: "/network/fhir/Subscription/:id/$events",
-      handle: (request, context) => {
-        const since = Number(firstQueryValue(request.query.eventsSinceNumber) ?? 1);
-        const until = Number(firstQueryValue(request.query.eventsUntilNumber) ?? since);
-        const content = firstQueryValue(request.query.content) === "empty" ? "empty" : "full-resource";
-        const events = Object.values(context.state.network.events)
-          .filter((event) => event.eventNumber >= since && event.eventNumber <= until)
-          .sort((a, b) => a.eventNumber - b.eventNumber);
-        const eventNumbers = new Set(events.map((event) => event.eventNumber));
-        const missing = [];
-        for (let eventNumber = since; eventNumber <= until; eventNumber += 1) {
-          if (!eventNumbers.has(eventNumber)) {
-            missing.push(eventNumber);
-          }
-        }
-        if (events.length === 0 || missing.length > 0) {
-          return json(request, 410, {
-            resourceType: "OperationOutcome",
-            issue: [
-              {
-                severity: "error",
-                code: "not-found",
-                diagnostics: `Requested network activity events are no longer available: ${missing.join(", ") || "none retained"}.`,
-              },
-            ],
-          });
-        }
-        return json(
-          request,
-          200,
-          networkActivityEventsBundle(events, context.state.network.subscriptionId ?? pathPart(request.path, 3), content),
-        );
       },
     });
 
@@ -544,6 +530,18 @@ export class NetworkActivitySimulation {
       method: "POST",
       pathPattern: "/app/network-activity",
       handle: (request, context) => {
+        if (request.headers["x-webhook-secret"] !== "client-generated-secret") {
+          return json(request, 401, {
+            resourceType: "OperationOutcome",
+            issue: [
+              {
+                severity: "error",
+                code: "login",
+                diagnostics: "Missing or invalid webhook receiver secret.",
+              },
+            ],
+          });
+        }
         const status = (request.body as any)?.entry?.[0]?.resource;
         const eventNumbers =
           status?.notificationEvent?.map?.((event: any) => Number(event.eventNumber)).filter(Boolean) ?? [];
@@ -564,36 +562,23 @@ export class NetworkActivitySimulation {
               received: eventNumber,
             },
           });
-        }
-
-        const eventsResponse = context.send({
-          from: "client",
-          to: "network",
-          method: "GET",
-          path: `/network/fhir/Subscription/${context.state.app.networkSubscriptionId ?? "network-sub-1"}/$events?eventsSinceNumber=${since}&eventsUntilNumber=${eventNumber}&content=full-resource`,
-          headers: { authorization: `Bearer ${context.state.app.networkToken ?? "network-token-123"}` },
-          correlationId: request.correlationId,
-          summary: since === eventNumber ? "Retrieve authoritative activity event" : "Retrieve missed activity event range",
-        });
-        if (eventsResponse.status >= 400) {
           context.state.app.pendingActions.push({
             signal: {
               topic: NETWORK_ACTIVITY_TOPIC,
-              activityId: `recovery-${eventNumber}`,
+              activityId: `recovery-before-${eventNumber}`,
               patient: { id: PATIENT_ID, scope: "network" },
               observedAt: new Date().toISOString(),
               activityType: "activity-detected",
               followUpDiscovery: "ordinary-network-discovery",
             },
             action: {
-              code: "discover-network",
+              code: "recover-network",
               followUpDiscovery: "ordinary-network-discovery",
             },
           });
-          return json(request, 202, { accepted: true, recovery: true });
         }
 
-        const signals = parseNetworkActivityBundles(eventsResponse.body);
+        const signals = parseNetworkActivityBundles(request.body);
         for (const signal of signals) {
           if (context.state.app.seenActivityIds.includes(signal.activityId)) {
             context.trace({
@@ -638,6 +623,42 @@ export class NetworkActivitySimulation {
           expires_in: 3600,
           scope: "patient/Encounter.r patient/Appointment.r system/Subscription.crud",
           patient: source.patientId,
+        });
+      },
+    });
+
+    this.kernel.register({
+      actor: "data-holder",
+      method: "GET",
+      pathPattern: "/data-holders/:sourceId/fhir/metadata",
+      handle: (request, context) => {
+        const source = context.state.sources[pathPart(request.path, 1)];
+        const authError = requireDataHolderAuthorization(request, source);
+        if (authError) {
+          return authError;
+        }
+        return json(request, 200, {
+          resourceType: "CapabilityStatement",
+          status: "active",
+          kind: "instance",
+          fhirVersion: "4.0.1",
+          rest: [
+            {
+              mode: "server",
+              resource: [
+                { type: "Encounter", interaction: [{ code: "read" }, { code: "search-type" }] },
+                ...(source.feedEnabled
+                  ? [
+                      {
+                        type: "Subscription",
+                        interaction: [{ code: "create" }, { code: "read" }, { code: "delete" }],
+                        supportedProfile: [PATIENT_DATA_FEED_TOPIC],
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
         });
       },
     });
@@ -766,7 +787,7 @@ export class NetworkActivitySimulation {
   ): NetworkActivitySignal {
     const effectivePolicy: DisclosurePolicy = source.sensitive ? "opaque" : this.state.network.disclosurePolicy;
     const requestedRead = followUpRead;
-    const hintLevel = this.hintLevelFor(source, effectivePolicy, requestedRead);
+    const hintLevel = this.hintLevelFor(source, effectivePolicy, activityType, requestedRead);
     const signal: NetworkActivitySignal = {
       topic: NETWORK_ACTIVITY_TOPIC,
       activityId: opaqueToken("act", eventNumber),
@@ -784,13 +805,11 @@ export class NetworkActivitySimulation {
     if (hintLevel !== "discovery-hinted") {
       signal.dataHolderOrganization = { identifiers: organization(source).identifier, name: source.name };
     }
-    if (hintLevel === "search-hinted" || hintLevel === "read-hinted" || hintLevel === "subscription-hinted") {
+    if (hintLevel === "endpoint-hinted" || hintLevel === "search-hinted" || hintLevel === "read-hinted") {
       signal.dataHolderEndpoint = source.endpoint;
     }
     if (hintLevel === "read-hinted" && requestedRead) {
       signal.followUpRead = [requestedRead];
-    } else if (hintLevel === "subscription-hinted") {
-      signal.followUpSubscribe = [PATIENT_DATA_FEED_TOPIC];
     } else if (hintLevel === "search-hinted") {
       signal.followUpSearch = [followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START)];
     }
@@ -801,6 +820,7 @@ export class NetworkActivitySimulation {
   private hintLevelFor(
     source: SourceRecord,
     policy: DisclosurePolicy,
+    activityType: string,
     followUpRead?: string,
   ): ActivityHintLevel {
     if (policy === "opaque") {
@@ -812,10 +832,10 @@ export class NetworkActivitySimulation {
     if (policy === "data-holder-organization") {
       return "organization-hinted";
     }
-    if (policy === "data-holder-endpoint" || !source.feedEnabled) {
+    if (policy === "data-holder-endpoint" && source.supportsQuery && activityType === "data-holder-activity-detected") {
       return "search-hinted";
     }
-    return "subscription-hinted";
+    return "endpoint-hinted";
   }
 
   private chooseAction(signal: NetworkActivitySignal): SuggestedActionView {
@@ -829,8 +849,8 @@ export class NetworkActivitySimulation {
     if (signal.dataHolderEndpoint && signal.followUpSearch?.[0]) {
       return { code: "search-data-holder", followUpSearch: signal.followUpSearch[0] };
     }
-    if (signal.followUpSubscribe?.[0] && signal.dataHolderEndpoint) {
-      return { code: "subscribe-data-holder", followUpSubscribe: signal.followUpSubscribe[0] };
+    if (signal.dataHolderEndpoint) {
+      return { code: "inspect-data-holder" };
     }
     if (signal.followUpDiscovery) {
       return { code: "discover-network", followUpDiscovery: signal.followUpDiscovery };
@@ -869,11 +889,39 @@ export class NetworkActivitySimulation {
 
   private learnSourcesFromResponse(response: SimResponse, discoveredBy: string) {
     const body = response.body as { dataHolders?: Array<{ id: string }> };
+    const learned: SourceRecord[] = [];
     for (const result of body.dataHolders ?? []) {
       const source = this.state.sources[result.id];
       if (source) {
         this.learnSource(source, discoveredBy);
+        learned.push(source);
       }
+    }
+    return learned;
+  }
+
+  private queryDiscoveredSourcesWithoutFeed(sources: SourceRecord[], correlationId: string) {
+    for (const source of sources) {
+      if (!source.supportsQuery || this.state.app.feedSubscriptions[source.id]) {
+        continue;
+      }
+      const token = this.ensureSourceToken(source);
+      const response = this.kernel.send({
+        from: "client",
+        to: "data-holder",
+        method: "GET",
+        path: renderFollowUpPath(source, followUpSearchTemplate(source, "Encounter", ACTIVITY_WINDOW_START), token.patient),
+        headers: { authorization: `Bearer ${token.token}` },
+        correlationId,
+        summary: `Recovery query at ${source.name}`,
+      });
+      this.kernel.trace({
+        kind: "state-change",
+        actor: "client",
+        summary: `Recovery query found ${bundleCount(response.body)} resources at ${source.name}`,
+        details: response.body,
+        correlationId,
+      });
     }
   }
 
@@ -911,7 +959,6 @@ export class NetworkActivitySimulation {
         id: source.id,
         dataHolderOrganization: organization(source),
         dataHolderEndpoint: source.endpoint,
-        followUpSubscribe: source.feedEnabled ? PATIENT_DATA_FEED_TOPIC : undefined,
       })),
       withheld: candidates.length - visible.length,
     };
@@ -954,8 +1001,8 @@ export class NetworkActivitySimulation {
 
 function extractHandle(body: unknown) {
   const candidate = body as any;
-  if (candidate?.activityHandle) {
-    return String(candidate.activityHandle);
+  if (candidate?.["activity-handle"]) {
+    return String(candidate["activity-handle"]);
   }
   const parameter = candidate?.parameter?.find?.((item: any) => item.name === "activity-handle");
   return parameter?.valueString ? String(parameter.valueString) : undefined;

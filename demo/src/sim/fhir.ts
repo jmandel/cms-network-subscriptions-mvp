@@ -34,13 +34,14 @@ export function createNetworkSubscription() {
     },
     channel: {
       type: "rest-hook",
-      endpoint: "/app/network-activity",
+      endpoint: "https://app.example.org/fhir/network-activity",
       payload: "application/fhir+json",
+      header: ["X-Webhook-Secret: client-generated-secret"],
       _payload: {
         extension: [
           {
             url: "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-payload-content",
-            valueCode: "empty",
+            valueCode: "full-resource",
           },
         ],
       },
@@ -113,9 +114,6 @@ export function activityParameters(signal: NetworkActivitySignal) {
   });
   signal.followUpSearch?.forEach((url) => {
     params.push({ name: "follow-up-search", valueString: url });
-  });
-  signal.followUpSubscribe?.forEach((topic) => {
-    params.push({ name: "follow-up-subscribe", valueUrl: topic });
   });
   if (signal.followUpDiscovery) {
     params.push({ name: "follow-up-discovery", valueString: signal.followUpDiscovery });
@@ -239,7 +237,6 @@ function parseActivityParameters(params: any): NetworkActivitySignal | undefined
   const handle = first("activity-handle")?.valueString;
   const followUpRead = (values.get("follow-up-read") ?? []).map((item) => item.valueString);
   const followUpSearch = (values.get("follow-up-search") ?? []).map((item) => item.valueString);
-  const followUpSubscribe = (values.get("follow-up-subscribe") ?? []).map((item) => item.valueUrl);
   const followUpDiscovery = first("follow-up-discovery")?.valueString;
 
   return {
@@ -264,7 +261,6 @@ function parseActivityParameters(params: any): NetworkActivitySignal | undefined
     dataHolderEndpoint,
     followUpRead,
     followUpSearch,
-    followUpSubscribe,
     followUpDiscovery,
   };
 }

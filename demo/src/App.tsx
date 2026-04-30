@@ -21,6 +21,8 @@ import { parseNetworkActivityBundle } from "./sim/fhir";
 import { NetworkActivitySimulation } from "./sim/simulation";
 import type { DisclosurePolicy, ScenarioId, Snapshot, TraceEvent } from "./sim/types";
 
+type InspectorMode = "summary" | "request" | "response" | "raw";
+
 type TrafficItem =
   | {
       id: string;
@@ -39,7 +41,6 @@ const disclosureOptions: Array<{ value: DisclosurePolicy; label: string }> = [
   { value: "opaque", label: "Opaque" },
   { value: "data-holder-organization", label: "Org" },
   { value: "data-holder-endpoint", label: "Endpoint" },
-  { value: "follow-up-subscribe", label: "Subscribe" },
 ];
 
 const scenarios: Array<{
@@ -61,25 +62,25 @@ const scenarios: Array<{
   {
     id: "opaque-rls",
     label: "Opaque Activity",
-    short: "Wake up, pull, then RLS.",
-    lesson: "A network can wake the client without naming the data holder; the client pulls the authoritative event before following discovery.",
-    steps: ["Empty wake-up webhook", "Client retrieves $events", "RLS down-scopes fan-out"],
+    short: "Signal, then RLS.",
+    lesson: "A network can send an inline activity signal without naming the data holder; the client follows documented discovery with the opaque handle.",
+    steps: ["Full-resource webhook", "Activity signal has no data holder", "RLS down-scopes fan-out"],
     icon: Search,
   },
   {
-    id: "subscription-hinted",
-    label: "Subscribe Hint",
+    id: "endpoint-hinted",
+    label: "Endpoint Hint",
     short: "Use the hinted FHIR endpoint.",
-    lesson: "When policy allows, the pulled activity event can disclose one data-holder FHIR endpoint and the Patient Data Feed topic it supports.",
-    steps: ["$events includes FHIR endpoint and topic", "Client authorizes at endpoint", "Client creates Patient Data Feed subscription"],
+    lesson: "When policy allows, the activity signal can disclose one data-holder FHIR endpoint. The client authorizes there and uses FHIR /metadata to discover Patient Data Feed support.",
+    steps: ["Webhook includes FHIR endpoint", "Client checks /metadata", "Client creates Patient Data Feed subscription"],
     icon: Bell,
   },
   {
     id: "known-data-holder",
     label: "Known Data Holder",
     short: "Run a hinted query.",
-    lesson: "If the pulled activity event includes a follow-up search URL, the client can run that search after data-holder authorization.",
-    steps: ["$events includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
+    lesson: "If the activity signal includes a follow-up search URL, the client can run that search after data-holder authorization.",
+    steps: ["Webhook includes follow-up-search", "Client authorizes at endpoint", "Client runs the hinted Encounter query"],
     icon: Server,
   },
   {
@@ -87,7 +88,7 @@ const scenarios: Array<{
     label: "Read Hint",
     short: "Read one hinted resource.",
     lesson: "If policy allows a specific follow-up read URL, the client can authorize at the data holder and read that resource directly.",
-    steps: ["$events includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
+    steps: ["Webhook includes follow-up-read", "Client authorizes at endpoint", "Client reads that Encounter"],
     icon: Database,
   },
   {
@@ -102,8 +103,8 @@ const scenarios: Array<{
     id: "missed-activity",
     label: "Missed Event",
     short: "Detect a gap.",
-    lesson: "Standard Subscription event numbers let the client notice missed wake-ups and retrieve the retained event range.",
-    steps: ["First webhook is dropped", "Next event number has a gap", "Client retrieves $events range"],
+    lesson: "Standard Subscription event numbers let the client notice missed webhooks and fall back to discovery plus targeted source queries.",
+    steps: ["First webhook is dropped", "Next event number has a gap", "Client runs recovery discovery"],
     icon: Eye,
   },
   {
@@ -111,7 +112,7 @@ const scenarios: Array<{
     label: "Sensitive Policy",
     short: "Opaque by policy.",
     lesson: "Sensitive data holders can force opaque activity events while still permitting handle-scoped follow-up.",
-    steps: ["Network withholds data-holder detail", "Client retrieves $events", "Policy limits what comes back"],
+    steps: ["Network withholds data-holder detail", "Webhook carries only opaque hints", "Policy limits what comes back"],
     icon: Shield,
   },
 ];
@@ -135,7 +136,7 @@ export function App() {
   const simRef = useRef(new NetworkActivitySimulation());
   const [snapshot, setSnapshot] = useState<Snapshot>(() => simRef.current.snapshot());
   const [selectedTrafficId, setSelectedTrafficId] = useState<string | undefined>();
-  const [inspectorMode, setInspectorMode] = useState<"pretty" | "raw">("pretty");
+  const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
   const [activeScenarioId, setActiveScenarioId] = useState<ScenarioId>("bootstrap");
 
   const trafficItems = useMemo(() => buildTrafficItems(snapshot.state.trace), [snapshot.state.trace]);
@@ -151,6 +152,7 @@ export function App() {
   }
 
   function runScenario(id: ScenarioId) {
+    simRef.current = new NetworkActivitySimulation();
     setActiveScenarioId(id);
     simRef.current.runScenario(id);
     setSelectedTrafficId(undefined);
@@ -222,8 +224,11 @@ export function App() {
           </div>
         </div>
 
-        <div className="control-row setup-row">
-          <SectionTitle icon={Shield} label="Setup" />
+        <details className="advanced-setup">
+          <summary>
+            <Shield size={15} />
+            <span>Advanced setup</span>
+          </summary>
           <div className="setup-grid">
             <ControlGroup label="Network disclosure">
               <Segmented
@@ -251,7 +256,7 @@ export function App() {
               </div>
             </ControlGroup>
           </div>
-        </div>
+        </details>
       </section>
 
       <section className="workspace">
@@ -301,7 +306,6 @@ export function App() {
                 selectedTrafficId={selectedTraffic?.id}
                 onSelect={(id) => setSelectedTrafficId(id)}
               />
-              <TrafficDetailPane item={selectedTraffic} />
             </div>
           </section>
         </section>
@@ -313,10 +317,12 @@ export function App() {
               <Segmented
                 value={inspectorMode}
                 options={[
-                  { value: "pretty", label: "Pretty" },
+                  { value: "summary", label: "Summary" },
+                  { value: "request", label: "Request" },
+                  { value: "response", label: "Response" },
                   { value: "raw", label: "Raw" },
                 ]}
-                onChange={(value) => setInspectorMode(value as "pretty" | "raw")}
+                onChange={(value) => setInspectorMode(value as InspectorMode)}
               />
             </div>
             <div className="inspector-body">
@@ -382,68 +388,6 @@ function TrafficList({
   );
 }
 
-function TrafficDetailPane({ item }: { item?: TrafficItem }) {
-  if (!item) {
-    return (
-      <section className="traffic-detail-panel">
-        <div className="empty-state compact">Select a traffic row to inspect the request and response.</div>
-      </section>
-    );
-  }
-
-  if (item.kind === "event") {
-    return (
-      <section className="traffic-detail-panel">
-        <DetailPanelHeader item={item} />
-        <TraceEventCard title="Event" event={item.event} />
-      </section>
-    );
-  }
-
-  return (
-    <section className="traffic-detail-panel">
-      <DetailPanelHeader item={item} />
-      <div className="traffic-detail-grid">
-        <HttpCard
-          title="Request"
-          badge={item.requestEvent.request?.method ?? "request"}
-          lines={requestLines(item.requestEvent)}
-          body={item.requestEvent.request?.body}
-        />
-        <HttpCard
-          title="Response"
-          badge={item.responseEvent?.response?.status ? String(item.responseEvent.response.status) : "..."}
-          lines={responseLines(item.responseEvent)}
-          body={item.responseEvent?.response?.body}
-        />
-      </div>
-      {item.childEvents.length > 0 ? (
-        <div className="inline-events">
-          {item.childEvents.map((event) => (
-            <span key={event.id}>
-              <b className={`kind kind-${event.kind}`}>{event.kind}</b>
-              {event.summary}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function DetailPanelHeader({ item }: { item: TrafficItem }) {
-  return (
-    <div className="traffic-detail-head">
-      <div>
-        <span className={`kind kind-${trafficItemKind(item)}`}>{trafficItemKind(item)}</span>
-        <strong>{trafficItemSummary(item)}</strong>
-        <small>{trafficItemSubhead(item)}</small>
-      </div>
-      <span>{trafficItemStatus(item)}</span>
-    </div>
-  );
-}
-
 function HttpCard({
   title,
   badge,
@@ -490,12 +434,38 @@ function TraceEventCard({ title, event }: { title: string; event: TraceEvent }) 
   );
 }
 
-function Inspector({ item, mode }: { item?: TrafficItem; mode: "pretty" | "raw" }) {
+function Inspector({ item, mode }: { item?: TrafficItem; mode: InspectorMode }) {
   if (!item) {
     return <div className="empty-state">No events</div>;
   }
   if (mode === "raw") {
     return <pre className="json-view">{JSON.stringify(rawTrafficItem(item), null, 2)}</pre>;
+  }
+  if (mode === "request") {
+    if (item.kind === "event") {
+      return <TraceEventCard title="Event" event={item.event} />;
+    }
+    return (
+      <HttpCard
+        title="Request"
+        badge={item.requestEvent.request?.method ?? "request"}
+        lines={requestLines(item.requestEvent)}
+        body={item.requestEvent.request?.body}
+      />
+    );
+  }
+  if (mode === "response") {
+    if (item.kind === "event") {
+      return <TraceEventCard title="Event" event={item.event} />;
+    }
+    return (
+      <HttpCard
+        title="Response"
+        badge={item.responseEvent?.response?.status ? String(item.responseEvent.response.status) : "..."}
+        lines={responseLines(item.responseEvent)}
+        body={item.responseEvent?.response?.body}
+      />
+    );
   }
 
   const signal = networkSignalFromItem(item);
@@ -558,7 +528,6 @@ function SignalCard({ signal }: { signal: NonNullable<ReturnType<typeof networkS
           ["FHIR endpoint", signal.dataHolderEndpoint ?? "not disclosed"],
           ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
           ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
-          ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
           ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
         ]}
       />
@@ -576,7 +545,6 @@ function ActionCard({ action }: { action: NonNullable<ReturnType<typeof actionFr
           ["resource", action.resourceType && action.resourceId ? `${action.resourceType}/${action.resourceId}` : "none"],
           ["url", action.url ?? "none"],
           ["follow-up search", action.followUpSearch ?? "none"],
-          ["follow-up subscribe", action.followUpSubscribe ?? "none"],
           ["follow-up discovery", action.followUpDiscovery ?? "none"],
         ]}
       />
@@ -888,7 +856,6 @@ function actionFromTrace(event: TraceEvent) {
         resourceId?: string;
         url?: string;
         followUpSearch?: string;
-        followUpSubscribe?: string;
         followUpDiscovery?: string;
       }
     : null;
@@ -897,7 +864,7 @@ function actionFromTrace(event: TraceEvent) {
 function hintLevelFromSignal(signal: NetworkActivitySignal) {
   if (signal.followUpRead?.length) return "read hinted";
   if (signal.followUpSearch?.length) return "search hinted";
-  if (signal.followUpSubscribe?.length && signal.dataHolderEndpoint) return "subscription hinted";
+  if (signal.dataHolderEndpoint) return "endpoint hinted";
   if (signal.dataHolderOrganization) return "organization hinted";
   if (signal.followUpDiscovery) return "discovery hinted";
   return "opaque";
@@ -910,7 +877,6 @@ function payloadSummary(item: TrafficItem, signal: ReturnType<typeof networkSign
       ["topic", signal.topic],
       ["follow-up read", signal.followUpRead?.[0] ?? "not supplied"],
       ["follow-up search", signal.followUpSearch?.[0] ?? "not supplied"],
-      ["follow-up subscribe", signal.followUpSubscribe?.[0] ?? "not supplied"],
       ["follow-up discovery", signal.followUpDiscovery ?? "not supplied"],
     ];
   }

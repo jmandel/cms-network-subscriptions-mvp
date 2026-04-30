@@ -7,8 +7,8 @@ Live simulator: <https://joshuamandel.com/cms-network-subscriptions-mvp/>
 This branch is intentionally standalone. It explores a small control-plane MVP:
 
 - Networks notify authorized clients that patient-relevant activity may exist.
-- Network webhooks are empty wake-up signals; clients retrieve authoritative activity details with `$events`.
-- Retrieved activity events may be fully opaque or may include optional data-holder and follow-up hints.
+- Network webhooks use FHIR Subscriptions Backport `full-resource` mode to deliver an inline `Parameters` activity signal.
+- Activity signals may be fully opaque or may include optional data-holder and follow-up hints.
 - Clinical detail is discovered and retrieved through follow-up paths such as RLS, network query, follow-up search/read, or Patient Data Feed subscriptions at data-holder FHIR endpoints.
 
 Start with [index.md](index.md).

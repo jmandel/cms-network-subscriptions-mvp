@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="500" viewBox="0 0 1080 500" role="img" aria-labelledby="title desc">
   <title id="title">Network activity notification overview</title>
-  <desc id="desc">A client subscribes to a network activity endpoint, receives an empty wake-up notification, retrieves authoritative activity content with events, then follows hints to discovery or to one data-holder FHIR endpoint where it can query, read, or create a Patient Data Feed subscription.</desc>
+  <desc id="desc">A client subscribes to a network activity endpoint, receives a full-resource activity notification with an inline Parameters signal, then follows hints to discovery or to one data-holder FHIR endpoint where it can query, read, or create a Patient Data Feed subscription.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2b4a5f"/>
@@ -45,12 +45,8 @@
   <text x="288" y="199" class="small">1. subscribe</text>
 
   <path d="M405 153 C330 165 315 260 240 265" class="line"/>
-  <rect x="276" y="281" width="152" height="22" class="tag-bg"/>
-  <text x="285" y="297" class="small">2. empty wake-up</text>
-
-  <path d="M240 248 C320 238 350 170 405 168" class="dash"/>
-  <rect x="292" y="214" width="126" height="22" class="tag-bg"/>
-  <text x="300" y="231" class="small">2b. pull $events</text>
+  <rect x="270" y="281" width="220" height="22" class="tag-bg"/>
+  <text x="280" y="297" class="small">2. activity signal (Parameters)</text>
 
   <!-- Opaque fallback through discovery or network query. -->
   <path d="M240 282 C305 325 340 400 405 400" class="dash"/>
@@ -67,6 +63,6 @@
   <text x="428" y="28" class="small">3b. follow-up-read or follow-up-search</text>
 
   <path d="M150 295 V465 H902 V330" class="dash"/>
-  <rect x="378" y="470" width="304" height="22" class="tag-bg"/>
-  <text x="386" y="487" class="small">3c. follow-up-subscribe at endpoint</text>
+  <rect x="356" y="470" width="350" height="22" class="tag-bg"/>
+  <text x="364" y="487" class="small">3c. /metadata, then subscribe if supported</text>
 </svg>

@@ -22,7 +22,6 @@ export interface NetworkActivitySignal {
   dataHolderEndpoint?: Url;
   followUpRead?: UrlTemplate[];
   followUpSearch?: UrlTemplate[];
-  followUpSubscribe?: Url[];
   followUpDiscovery?: string;
   extensions?: Record<string, unknown>;
 }

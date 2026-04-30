@@ -68,7 +68,7 @@ export function createInitialState(): SimulationState {
       decisions: [],
     },
     network: {
-      disclosurePolicy: "follow-up-subscribe",
+      disclosurePolicy: "data-holder-endpoint",
       eventCounter: 0,
       dropNextWebhook: false,
       handles: {},

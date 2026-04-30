@@ -77,13 +77,12 @@ export interface SendInput {
 export type DisclosurePolicy =
   | "opaque"
   | "data-holder-organization"
-  | "data-holder-endpoint"
-  | "follow-up-subscribe";
+  | "data-holder-endpoint";
 
 export type ScenarioId =
   | "bootstrap"
   | "opaque-rls"
-  | "subscription-hinted"
+  | "endpoint-hinted"
   | "known-data-holder"
   | "read-hinted"
   | "patient-data-feed"
@@ -139,7 +138,6 @@ export interface SuggestedActionView {
   resourceId?: string;
   url?: string;
   followUpSearch?: string;
-  followUpSubscribe?: string;
   followUpDiscovery?: string;
 }
 

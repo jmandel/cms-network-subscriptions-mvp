@@ -106,6 +106,48 @@ h1 {
   margin: 9px 0 0;
 }
 
+.advanced-setup {
+  border-top: 1px solid #e4eaee;
+  padding-top: 10px;
+}
+
+.advanced-setup summary {
+  align-items: center;
+  color: #263846;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.advanced-setup summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-setup summary::after {
+  color: #60717e;
+  content: "Show";
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 4px;
+  text-transform: none;
+}
+
+.advanced-setup[open] summary::after {
+  content: "Hide";
+}
+
+.advanced-setup .setup-grid {
+  margin-top: 12px;
+}
+
+.advanced-setup:not([open]) .setup-grid {
+  display: none;
+}
+
 .workspace {
   align-items: start;
   display: grid;
@@ -440,10 +482,8 @@ h1 {
 }
 
 .traffic-workbench {
-  display: grid;
+  display: block;
   flex: 1 1 auto;
-  gap: 10px;
-  grid-template-rows: 260px 360px;
   min-height: 0;
 }
 
@@ -451,6 +491,7 @@ h1 {
   border: 1px solid #d8e0e5;
   border-radius: 7px;
   flex: 1 1 auto;
+  max-height: 520px;
   min-height: 0;
   overflow: auto;
 }
@@ -698,6 +739,10 @@ h1 {
   padding: 14px;
 }
 
+.inspector .segmented {
+  min-width: 300px;
+}
+
 .inspector-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -871,9 +916,11 @@ h1 {
 
   .scenario-strip {
     display: flex;
+    max-width: 100%;
     overflow-x: auto;
     padding-bottom: 4px;
     scrollbar-width: none;
+    width: 100%;
   }
 
   .scenario-strip::-webkit-scrollbar {
@@ -929,6 +976,18 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .scenario-strip {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .scenario-button {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
   .source-chip {
     flex-basis: 166px;
   }
@@ -947,5 +1006,15 @@ h1 {
 
   .right-rail {
     grid-template-rows: minmax(420px, auto) auto;
+  }
+
+  .inspector .panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .inspector .segmented {
+    min-width: 0;
+    width: 100%;
   }
 }
