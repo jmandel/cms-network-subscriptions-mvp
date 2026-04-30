@@ -91,3 +91,78 @@ test("missed webhook triggers retained event range retrieval", () => {
   expect(sim.state.trace.some((event) => event.summary.includes("Detected network event gap"))).toBe(true);
   expect(sim.state.trace.some((event) => event.summary === "Retrieve missed activity event range")).toBe(true);
 });
+
+test("partial retained event ranges fail instead of silently advancing", () => {
+  const sim = new NetworkActivitySimulation();
+  sim.bootstrap();
+  sim.setDisclosurePolicy("opaque");
+  sim.state.network.dropNextWebhook = true;
+  sim.injectNetworkEvent("valley", "activity-detected", "probable");
+  delete sim.state.network.events[1];
+  sim.injectNetworkEvent("mercy", "activity-detected", "probable");
+
+  const rangeResponse = sim.state.trace.find(
+    (event) =>
+      event.response?.status === 410 &&
+      event.request?.path.endsWith("/$events") &&
+      event.request.query.eventsSinceNumber === "1",
+  );
+  expect(rangeResponse?.response?.status).toBe(410);
+  expect(sim.state.app.lastNetworkEventNumber).toBe(0);
+});
+
+test("sensitive data-holder stays withheld after opaque signal", () => {
+  const sim = new NetworkActivitySimulation();
+  sim.runScenario("sensitive-data-holder");
+  const rlsResponse = sim.state.trace.find(
+    (event) => event.request?.path === "/network/rls/search" && event.response?.status === 200,
+  );
+  expect(JSON.stringify(rlsResponse?.response?.body)).not.toContain("Northside Behavioral Health");
+  expect((rlsResponse?.response?.body as any)?.withheld).toBe(1);
+  expect(sim.state.app.knownSources.northside).toBeUndefined();
+});
+
+test("data-holder routes enforce source authorization", () => {
+  const sim = new NetworkActivitySimulation();
+  const send = (sim as any).kernel.send;
+
+  const search = send({
+    from: "client",
+    to: "data-holder",
+    method: "GET",
+    path: "/data-holders/valley/fhir/Encounter?patient=data-holder-patient-valley",
+    summary: "Unauthorized search",
+  });
+  const read = send({
+    from: "client",
+    to: "data-holder",
+    method: "GET",
+    path: "/data-holders/valley/fhir/Encounter/enc-valley-1",
+    summary: "Unauthorized read",
+  });
+  const subscription = send({
+    from: "client",
+    to: "data-holder",
+    method: "POST",
+    path: "/data-holders/valley/fhir/Subscription",
+    body: {},
+    summary: "Unauthorized subscription",
+  });
+
+  expect(search.status).toBe(401);
+  expect(read.status).toBe(401);
+  expect(subscription.status).toBe(401);
+});
+
+test("network subscription read returns the requested id", () => {
+  const sim = new NetworkActivitySimulation();
+  sim.bootstrap();
+  const response = (sim as any).kernel.send({
+    from: "client",
+    to: "network",
+    method: "GET",
+    path: "/network/fhir/Subscription/network-sub-1",
+    summary: "Read network subscription",
+  });
+  expect(response.body.id).toBe("network-sub-1");
+});

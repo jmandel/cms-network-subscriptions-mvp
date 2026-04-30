@@ -35,6 +35,23 @@ function json(request: SimRequest, status: number, body: unknown): SimResponse {
   };
 }
 
+function requireDataHolderAuthorization(request: SimRequest, source: SourceRecord) {
+  const expected = `Bearer data-holder-token-${source.id}`;
+  if (request.headers.authorization === expected) {
+    return undefined;
+  }
+  return json(request, 401, {
+    resourceType: "OperationOutcome",
+    issue: [
+      {
+        severity: "error",
+        code: "login",
+        diagnostics: `Missing or invalid data-holder authorization for ${source.name}.`,
+      },
+    ],
+  });
+}
+
 function pathPart(path: string, index: number) {
   return path.split("/").filter(Boolean)[index];
 }
@@ -420,7 +437,7 @@ export class NetworkActivitySimulation {
       handle: (request) =>
         json(request, 200, {
           resourceType: "Subscription",
-          id: pathPart(request.path, 2),
+          id: pathPart(request.path, 3),
           status: "active",
         }),
     });
@@ -495,14 +512,21 @@ export class NetworkActivitySimulation {
         const events = Object.values(context.state.network.events)
           .filter((event) => event.eventNumber >= since && event.eventNumber <= until)
           .sort((a, b) => a.eventNumber - b.eventNumber);
-        if (events.length === 0) {
+        const eventNumbers = new Set(events.map((event) => event.eventNumber));
+        const missing = [];
+        for (let eventNumber = since; eventNumber <= until; eventNumber += 1) {
+          if (!eventNumbers.has(eventNumber)) {
+            missing.push(eventNumber);
+          }
+        }
+        if (events.length === 0 || missing.length > 0) {
           return json(request, 410, {
             resourceType: "OperationOutcome",
             issue: [
               {
                 severity: "error",
                 code: "not-found",
-                diagnostics: "Requested network activity events are no longer available.",
+                diagnostics: `Requested network activity events are no longer available: ${missing.join(", ") || "none retained"}.`,
               },
             ],
           });
@@ -652,6 +676,10 @@ export class NetworkActivitySimulation {
       pathPattern: "/data-holders/:sourceId/fhir/Subscription",
       handle: (request, context) => {
         const source = context.state.sources[pathPart(request.path, 1)];
+        const authError = requireDataHolderAuthorization(request, source);
+        if (authError) {
+          return authError;
+        }
         if (!source.feedEnabled) {
           return json(request, 400, { error: "Patient Data Feed not enabled", source: source.name });
         }
@@ -873,7 +901,7 @@ export class NetworkActivitySimulation {
       if (!source.sensitive) {
         return true;
       }
-      return mode === "RLS" && state.network.disclosurePolicy !== "opaque";
+      return false;
     });
     return {
       mode,
@@ -891,6 +919,10 @@ export class NetworkActivitySimulation {
 
   private queryResources(request: SimRequest, state: SimulationState, resourceType: "Encounter" | "Appointment") {
     const source = state.sources[pathPart(request.path, 1)];
+    const authError = requireDataHolderAuthorization(request, source);
+    if (authError) {
+      return authError;
+    }
     const patient = firstQueryValue(request.query.patient);
     const lastUpdated = firstQueryValue(request.query._lastUpdated);
     const resources = (state.resources[source.id]?.[resourceType] ?? []).filter((resource) =>
@@ -906,6 +938,10 @@ export class NetworkActivitySimulation {
 
   private readResource(request: SimRequest, state: SimulationState, resourceType: "Encounter" | "Appointment") {
     const source = state.sources[pathPart(request.path, 1)];
+    const authError = requireDataHolderAuthorization(request, source);
+    if (authError) {
+      return authError;
+    }
     const id = pathPart(request.path, 4);
     const resource = (state.resources[source.id]?.[resourceType] ?? []).find((item: any) => item.id === id);
     return resource ? json(request, 200, resource) : json(request, 404, { error: "Not found", id });

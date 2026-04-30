@@ -47,14 +47,17 @@
   <path d="M405 153 C330 165 315 260 240 265" class="line"/>
   <rect x="276" y="281" width="152" height="22" class="tag-bg"/>
   <text x="285" y="297" class="small">2. empty wake-up</text>
-  <text x="308" y="226" class="small">2b. pull $events</text>
+
+  <path d="M240 248 C320 238 350 170 405 168" class="dash"/>
+  <rect x="292" y="214" width="126" height="22" class="tag-bg"/>
+  <text x="300" y="231" class="small">2b. pull $events</text>
 
   <!-- Opaque fallback through discovery or network query. -->
-  <path d="M240 282 C305 325 340 373 405 373" class="dash"/>
+  <path d="M240 282 C305 325 340 400 405 400" class="dash"/>
   <rect x="256" y="333" width="205" height="24" class="tag-bg"/>
   <text x="265" y="350" class="small">3a. follow-up-discovery</text>
 
-  <path d="M635 373 C700 373 715 260 785 260" class="dash"/>
+  <path d="M635 400 C700 400 715 260 785 260" class="dash"/>
   <rect x="666" y="339" width="142" height="22" class="tag-bg"/>
   <text x="674" y="356" class="small">data-holder hint or result</text>
 
