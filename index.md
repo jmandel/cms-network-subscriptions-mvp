@@ -50,7 +50,17 @@ Together, these are powerful. The network tells the client where attention may
 be needed; the data-holder endpoint remains the place where clinical data is
 authorized, retrieved, and subscribed to.
 
-## 4. Subscription
+## 4. Prerequisites
+
+- **Network-scoped patient id.** A Network Activity Endpoint SHALL return a
+  stable patient id during authorization. Clients use this id in the `patient`
+  filter when creating a Subscription. The id is scoped to the network endpoint
+  and is not assumed to match any data-holder patient id.
+- **Per-network subscriptions.** This MVP is per-network. A client that wants
+  notifications across N networks creates a Subscription at each. Cross-network
+  coordination is out of scope.
+
+## 5. Subscription
 
 The Network Activity topic is:
 
@@ -59,7 +69,9 @@ https://cms.gov/fhir/SubscriptionTopic/network-activity
 ```
 
 The client creates an R4B Subscriptions Backport `Subscription` at the Network
-Activity Endpoint.
+Activity Endpoint. The value of `patient` (e.g., `network-patient-123`) is the
+network-scoped patient id returned to the client during authorization at the
+Network Activity Endpoint.
 
 ```json
 {
@@ -112,19 +124,20 @@ Bare activity-type codes in this specification refer to the CMS code system
 `https://cms.gov/fhir/CodeSystem/network-activity-type`. Networks may document
 additional codes using their own systems.
 
-Future versions may define cohort-level filters such as
+**Future direction.** Later versions may define cohort-level filters such as
 `Parameters?patient:in=Group/{id}` while retaining the same notification shape.
+This is the intended path to reduce subscription cardinality when one client
+follows many patients.
 
-## 5. Notification Format
+## 6. Notification Format
 
 Notifications use the FHIR R4B Subscriptions Backport shape:
 
 - the notification is a `Bundle`;
 - `Bundle.type` is `history`;
 - the first entry is a `SubscriptionStatus`;
-- each activity event points to a `Parameters` resource included in the same
-  bundle;
-- the `Parameters` resource is the activity signal.
+- each activity event points to a `Parameters` activity signal included in the
+  same bundle;
 - bundle-local `urn:uuid:` values use valid UUIDs, and each
   `focus.reference` matches the `fullUrl` of the included `Parameters`.
 
@@ -135,18 +148,22 @@ for follow-up.
 
 | Parameter | Cardinality | Type | Meaning |
 |---|---:|---|---|
-| `activity-id` | 1..1 | `valueString` | Network-assigned event id. Opaque to the client. |
+| `activity-id` | 1..1 | `valueString` | Network-assigned event id. Opaque to the client. Clients SHALL deduplicate by `(subscription, activity-id)`. |
 | `patient` | 1..1 | `valueString` | Patient id scoped to the endpoint where the subscription was created. |
 | `activity-type` | 1..* | `valueCoding` | One or more activity tags. |
 | `observed-at` | 1..1 | `valueInstant` | When the network observed the activity. |
-| `confidence` | 0..1 | `valueCode` | `confirmed`, `probable`, or `possible`. |
+| `confidence` | 0..1 | `valueCode` | `confirmed`, `probable`, or `possible`. Codes are drawn from `https://cms.gov/fhir/CodeSystem/network-activity-confidence`. |
 | `activity-handle` | 0..1 | `valueString` | Opaque handle that a documented network discovery/RLS workflow may use to narrow follow-up. |
 | `activity-handle-expires` | 0..1 | `valueInstant` | Optional expiration for the handle. |
 | `data-holder-organization` | 0..1 | `resource` | FHIR `Organization` identifying the data holder, if policy allows disclosure. |
-| `data-holder-endpoint` | 0..1 | `valueUrl` | Candidate FHIR base URL operated by or on behalf of the data holder. The client still verifies trust and authorizes there. |
+| `data-holder-endpoint` | 0..1 | `valueUrl` | Candidate FHIR base URL operated by or on behalf of the data holder. The hint is a suggestion; the client SHALL independently determine that the endpoint is in a trust framework it accepts before authorizing. |
 
 The activity handle is not meaningful to clients. Clients pass it only to
-network workflows that document support for it.
+network workflows that document support for it. For example, a client that
+received `activity-handle: ah-9c3m1q8` may pass that value to a documented
+network discovery workflow so the network can scope its response to the data
+holder behind that one event, rather than returning the patient's full network
+footprint.
 
 ### Activity Type Codes
 
@@ -170,9 +187,11 @@ Bare codes in this section refer to that code system.
 | `document-related` | The activity appears related to a document or note. |
 | `medication-related` | The activity appears related to medications or prescriptions. |
 
-Networks may define additional activity type codings.
+The codes above are an intentionally small starting set and are expected to
+grow over time. Networks MAY publish additional activity-type codes in their
+own code systems and use them alongside the CMS codes in the same notification.
 
-## 6. Follow-Up Model
+## 7. Follow-Up Model
 
 The notification does not prescribe a single operation. It gives the client
 enough information to choose ordinary follow-up:
@@ -190,7 +209,20 @@ The patient id returned by authorization is always scoped to the endpoint where
 it is used. A network-scoped patient id is used at the Network Activity Endpoint.
 A data-holder-scoped patient id is used at that data-holder endpoint.
 
-## 7. Examples
+**Notifications are hints.** A notification is a wake-up signal, not a promise
+of new data. Follow-up may legitimately return nothing — for example because
+detection was probabilistic, because the data holder applies a policy that
+limits access, or because the patient's preferences filter the result
+downstream. Clients SHALL NOT treat empty follow-up as a delivery failure or as
+evidence of network non-conformance.
+
+**Filtering.** Clients MAY apply local filters (for example, ignoring activity
+from data holders the patient has chosen to exclude). Networks and data holders
+MAY independently apply their own filters before a notification is emitted.
+This MVP does not specify how patient preferences are collected or honored at
+any layer.
+
+## 8. Examples
 
 ### Opaque Activity
 
@@ -315,7 +347,11 @@ The network may disclose the data holder and a candidate FHIR endpoint.
 The client verifies the endpoint, authorizes there, and uses the data-holder
 patient id returned during authorization for follow-up at that endpoint.
 
-## 8. Delivery and Recovery
+## 9. Delivery and Recovery
+
+Beyond the requirements below, Network Activity Endpoints follow the FHIR R4B
+Subscriptions Backport framework, including standard `SubscriptionStatus` event
+numbering and heartbeat behavior.
 
 Webhook delivery is best effort. Clients should be idempotent and use the
 standard subscription event number to notice gaps.
@@ -325,12 +361,13 @@ recovery mechanisms if supported. If recovery is not available, the client can
 fall back to ordinary network discovery and query connected data-holder
 endpoints where it has authorization.
 
-Webhook endpoints SHALL use HTTPS. Networks SHALL echo configured
-`Subscription.channel.header` values when delivering notifications. Clients
-SHOULD use an unpredictable receiver secret header and reject webhook requests
-that do not include it.
+Webhook endpoints SHALL use HTTPS. Network Activity Endpoints SHALL accept and
+echo client-supplied `Subscription.channel.header` values when delivering
+notifications. Clients SHOULD use an unpredictable receiver secret header and
+reject webhook requests that do not include it. Clients MAY rotate the secret
+by updating the Subscription.
 
-## 9. Authorization and Consent
+## 10. Authorization and Consent
 
 This proposal assumes authorization has already been established before a client
 receives a network-scoped access token. That authorization might come from an
@@ -340,11 +377,12 @@ flow.
 Activity notifications do not grant data-holder access. Each follow-up request
 is authorized at the endpoint receiving that request.
 
-## 10. Conformance Summary
+## 11. Conformance Summary
 
 Network Activity Endpoints:
 
 - SHALL support the Network Activity topic.
+- SHALL return a stable network-scoped patient id during authorization.
 - SHALL require `patient` filtering.
 - MAY support `activity-type` filtering.
 - SHALL deliver full-resource R4B Backport notifications as `Bundle.type =
@@ -355,6 +393,7 @@ Network Activity Endpoints:
 - SHALL include `activity-id`, `patient`, at least one `activity-type`, and
   `observed-at` in every activity signal.
 - SHALL treat `activity-id` and `activity-handle` as opaque client-facing values.
+- SHALL accept and echo client-supplied `Subscription.channel.header` values.
 - MAY include confidence, activity handle, data-holder organization, and
   data-holder endpoint hints.
 
@@ -362,9 +401,12 @@ Clients:
 
 - SHALL treat the activity signal as a hint, not clinical content.
 - SHALL treat `activity-id` and `activity-handle` as opaque.
+- SHALL deduplicate notifications by `(subscription, activity-id)`.
+- SHALL NOT treat empty follow-up as a delivery failure.
 - SHALL pass `activity-handle` only to documented network workflows that support
   it.
-- SHALL verify trust and authorize before using a data-holder endpoint.
+- SHALL independently verify trust before authorizing at any data-holder
+  endpoint hint.
 - SHOULD use event numbers to detect missed notifications.
 - SHOULD prefer the most specific useful hint available, while falling back to
   ordinary discovery when needed.
