@@ -320,7 +320,6 @@ patient id returned during authorization for follow-up at that endpoint.
 Webhook delivery is best effort. Clients should be idempotent and use the
 standard subscription event number to notice gaps.
 
-For this MVP, networks SHALL retain activity events for at least 24 hours.
 Clients that detect a missed event may use the Subscriptions Backport event
 recovery mechanisms if supported. If recovery is not available, the client can
 fall back to ordinary network discovery and query connected data-holder
@@ -358,7 +357,6 @@ Network Activity Endpoints:
 - SHALL treat `activity-id` and `activity-handle` as opaque client-facing values.
 - MAY include confidence, activity handle, data-holder organization, and
   data-holder endpoint hints.
-- SHALL retain activity events for at least 24 hours.
 
 Clients:
 
