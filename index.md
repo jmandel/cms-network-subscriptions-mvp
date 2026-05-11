@@ -189,9 +189,12 @@ Bare codes in this section refer to that code system.
 | `activity-detected` | Patient-relevant activity was observed, but no more specific portable tag is asserted. |
 | `care-relationship-detected` | The network believes a data holder has become newly relevant for the patient. |
 | `visit-related` | The activity appears related to an encounter, appointment, admission, discharge, or transfer. |
+| `order-related` | The activity appears related to a clinical order being placed, changed, canceled, or otherwise updated. |
 | `diagnostic-related` | The activity appears related to labs, imaging, reports, or similar diagnostic data. |
 | `document-related` | The activity appears related to a document or note. |
 | `medication-related` | The activity appears related to medications or prescriptions. |
+| `immunization-related` | The activity appears related to an immunization administration or record. |
+| `billing-related` | The activity appears related to claims, charges, payment, or other billing/financial events. |
 
 Do not include `activity-detected` merely because a notification exists. Use it
 as the fallback when none of the more specific portable tags are known or
@@ -200,6 +203,12 @@ applicable.
 The presence of `data-holder-organization` or `data-holder-endpoint` already
 indicates that the activity can be associated with a data holder, so the example
 binding does not include a separate data-holder activity tag.
+
+Source-specific detection details, such as `hl7v2-adt`, `hl7v2-oru`, or
+`hl7v2-mdm`, are best represented as network-defined or publisher-defined tags.
+For example, an ADT-derived encounter or appointment signal can use the portable
+`visit-related` tag and, when useful, a network-defined `hl7v2-adt` tag in the
+same `activity-type` array.
 
 ## 7. Follow-Up Model
 

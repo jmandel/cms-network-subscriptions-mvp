@@ -7,9 +7,12 @@ export type CmsActivityTypeCode =
   | "activity-detected"
   | "care-relationship-detected"
   | "visit-related"
+  | "order-related"
   | "diagnostic-related"
   | "document-related"
   | "medication-related"
+  | "immunization-related"
+  | "billing-related"
   | (string & {});
 
 export type ActivityConfidence = "confirmed" | "probable" | "possible";
