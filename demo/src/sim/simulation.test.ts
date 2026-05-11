@@ -102,8 +102,8 @@ test("known data-holder scenario runs ordinary source query without RLS", () => 
     (event) => event.kind === "webhook" && event.request?.path === "/app/network-activity",
   );
   const webhookPayload = JSON.stringify(webhook?.request?.body);
-  expect(webhookPayload).toContain("data-holder-activity-detected");
   expect(webhookPayload).toContain("visit-related");
+  expect(webhookPayload).not.toContain("activity-detected");
   expect(webhookPayload).not.toContain("follow-up-search");
   expect(webhookPayload).not.toContain("follow-up-discovery");
   expect(sim.state.trace.some((event) => event.summary === "Run network discovery/RLS")).toBe(false);

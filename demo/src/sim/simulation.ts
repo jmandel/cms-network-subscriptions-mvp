@@ -297,7 +297,7 @@ export class NetworkActivitySimulation {
 
     if (id === "opaque-rls") {
       this.setDisclosurePolicy("opaque");
-      this.injectNetworkEvent("mercy", ["activity-detected", "visit-related"], "probable");
+      this.injectNetworkEvent("mercy", ["visit-related"], "probable");
       this.processPendingActions();
     }
 
@@ -310,13 +310,13 @@ export class NetworkActivitySimulation {
     if (id === "known-data-holder") {
       this.setDisclosurePolicy("data-holder-endpoint");
       this.learnSource(this.state.sources.valley, "seeded app state");
-      this.injectNetworkEvent("valley", ["data-holder-activity-detected", "visit-related"], "confirmed");
+      this.injectNetworkEvent("valley", ["visit-related"], "confirmed");
       this.processPendingActions();
     }
 
     if (id === "activity-tags") {
       this.setDisclosurePolicy("data-holder-endpoint");
-      this.injectNetworkEvent("mercy", ["data-holder-activity-detected", "diagnostic-related"], "confirmed");
+      this.injectNetworkEvent("mercy", ["diagnostic-related"], "confirmed");
       this.processPendingActions();
     }
 
@@ -347,7 +347,7 @@ export class NetworkActivitySimulation {
 
     if (id === "sensitive-data-holder") {
       this.setDisclosurePolicy("data-holder-endpoint");
-      this.injectNetworkEvent("northside", ["activity-detected", "visit-related"], "possible");
+      this.injectNetworkEvent("northside", ["visit-related"], "possible");
       this.processPendingActions();
     }
   }

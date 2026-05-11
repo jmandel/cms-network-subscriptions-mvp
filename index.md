@@ -120,9 +120,10 @@ Parameters?patient=network-patient-123&activity-type=visit-related,document-rela
 Parameters?patient=network-patient-123&activity-type=https://cms.gov/fhir/CodeSystem/network-activity-type|visit-related
 ```
 
-Bare activity-type codes in this specification refer to the CMS code system
-`https://cms.gov/fhir/CodeSystem/network-activity-type`. Networks may document
-additional codes using their own systems.
+Bare activity-type codes in this specification are shorthand for the example
+code system `https://cms.gov/fhir/CodeSystem/network-activity-type`. Networks
+and notification publishers determine which activity codes they emit and SHOULD
+publish the code systems and meanings they support.
 
 **Future direction.** Later versions may define cohort-level filters such as
 `Parameters?patient:in=Group/{id}` while retaining the same notification shape.
@@ -167,29 +168,38 @@ footprint.
 
 ### Activity Type Codes
 
-The activity type is a repeatable set of tags. Tags are not mutually exclusive.
-For example, a single event can be both `activity-detected` and `visit-related`.
+The activity type is a repeatable set of tags. Tags are not mutually exclusive,
+and a notification can include multiple `activity-type` values. For example, a
+single event can be both `care-relationship-detected` and `visit-related`.
 
-Suggested CMS codes:
+The following table is an example binding used by this document. It is not a
+final or exhaustive catalog. Networks and notification publishers determine
+their own activity-type codes and can use their own code systems. Networks MAY
+use these example codes as broad, portable tags. When an example code applies,
+networks SHOULD include it in the `activity-type` array alongside any more
+specific network-defined or publisher-defined activity tags.
 
-FHIR `Coding.system` for these codes:
+FHIR `Coding.system` for these example codes:
 `https://cms.gov/fhir/CodeSystem/network-activity-type`
 
 Bare codes in this section refer to that code system.
 
 | Code | Meaning |
 |---|---|
-| `activity-detected` | Generic patient-relevant activity was observed. |
+| `activity-detected` | Patient-relevant activity was observed, but no more specific portable tag is asserted. |
 | `care-relationship-detected` | The network believes a data holder has become newly relevant for the patient. |
-| `data-holder-activity-detected` | The network believes activity occurred at an identified data holder. |
 | `visit-related` | The activity appears related to an encounter, appointment, admission, discharge, or transfer. |
 | `diagnostic-related` | The activity appears related to labs, imaging, reports, or similar diagnostic data. |
 | `document-related` | The activity appears related to a document or note. |
 | `medication-related` | The activity appears related to medications or prescriptions. |
 
-The codes above are an intentionally small starting set and are expected to
-grow over time. Networks MAY publish additional activity-type codes in their
-own code systems and use them alongside the CMS codes in the same notification.
+Do not include `activity-detected` merely because a notification exists. Use it
+as the fallback when none of the more specific portable tags are known or
+applicable.
+
+The presence of `data-holder-organization` or `data-holder-endpoint` already
+indicates that the activity can be associated with a data holder, so the example
+binding does not include a separate data-holder activity tag.
 
 ## 7. Follow-Up Model
 
@@ -271,13 +281,6 @@ The network can wake the client without naming the data holder.
         "parameter": [
           { "name": "activity-id", "valueString": "act-1" },
           { "name": "patient", "valueString": "network-patient-123" },
-          {
-            "name": "activity-type",
-            "valueCoding": {
-              "system": "https://cms.gov/fhir/CodeSystem/network-activity-type",
-              "code": "activity-detected"
-            }
-          },
           {
             "name": "activity-type",
             "valueCoding": {

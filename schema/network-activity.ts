@@ -6,7 +6,6 @@ export const CMS_ACTIVITY_TYPE_SYSTEM = "https://cms.gov/fhir/CodeSystem/network
 export type CmsActivityTypeCode =
   | "activity-detected"
   | "care-relationship-detected"
-  | "data-holder-activity-detected"
   | "visit-related"
   | "diagnostic-related"
   | "document-related"
